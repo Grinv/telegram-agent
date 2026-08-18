@@ -14,3 +14,7 @@ Read these first — they're the source of truth, not restated here:
 
 - **Changes observable behavior** (anything a `specs/*/spec.md` file would need to describe or update) → propose it first with `/opsx:propose`, then `/opsx:apply`. Don't edit `src/` directly for this.
 - **Doesn't change behavior** (docs, typos, comments, pure refactors) → editing directly is fine; no change proposal needed.
+
+## Git commits
+
+Don't add a `Co-Authored-By` trailer to commits in this repo.
