@@ -1,0 +1,21 @@
+{
+  "name": "telegram-llm-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal Telegram bot that forwards messages to a pluggable LLM connector (Ollama, currently stubbed).",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "node --import tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "node --import tsx --test \"test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

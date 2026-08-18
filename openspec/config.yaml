@@ -1,0 +1,49 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+context: |
+  Tech stack: TypeScript on Node.js (current LTS, e.g. 24.x), native ESM
+  ("type": "module"), tsx for dev execution, tsc for the build.
+
+  Avoid third-party SDKs/libraries where a Node built-in covers it, to limit
+  supply-chain surface: fetch for HTTP (Telegram Bot API, Ollama), util.styleText
+  for colored console output, process.loadEnvFile() instead of dotenv.
+
+  LLM inference is pluggable: every provider implements one BaseConnector
+  contract (callLlm(prompt): Promise<LlmResult>), lives under src/llms/<provider>/,
+  and is selected at runtime via the LLM_PROVIDER env var (default: stub).
+  Each callLlm invocation runs isolated in a forked child process with a
+  timeout that kills the child on hang/crash - never call a connector in-process
+  without that isolation.
+
+  Testing: node:test + node:assert only, no external test framework. Prefer
+  fakes/fixtures (fake fetch, fixture runner scripts) over hitting real
+  network services or real child-process connectors in tests.
+
+  The bot is intentionally memoryless/one-shot (User Message -> LLM -> Reply);
+  do not introduce per-chat conversation history without an explicit decision
+  to change that.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+operations:
+  apply:
+    guidance:
+      - Apply KISS, DRY, and YAGNI - keep implementations simple, avoid
+        duplication, and don't build for hypothetical future requirements.
+      - Prefer pure functions (no hidden state/side effects) wherever practical,
+        so logic is easy to unit test in isolation.
+      - Cover new logic with tests as you implement it, not as an afterthought.
