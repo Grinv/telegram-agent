@@ -381,6 +381,19 @@ cp .env.example .env          # then fill in TELEGRAM_BOT_TOKEN
 npm run sandbox:build         # builds telegram-agent-sandbox (needed before docker:up will start)
 ```
 
+`sandbox:build` passes `--pull`, so it refreshes its Alpine base rather than
+reusing whatever copy happens to sit in the local image store. That matters
+more here than in a normal build: this image is the container untrusted
+tool calls execute in, and a stale base means it quietly runs an Alpine
+that stopped receiving security updates. Re-run the command periodically,
+not only when `sandbox/Dockerfile` changes — the Dockerfile can be
+unchanged for a year while its base moves several releases. Check what you
+actually have with:
+
+```bash
+docker run --rm --entrypoint cat telegram-agent-sandbox:latest /etc/alpine-release
+```
+
 In `.env`, set `OLLAMA_MODEL` to a **tool-calling-capable** model — this is
 the single most common way to get stuck. `llama3` (an old default some
 setups still reference) does **not** support tool calling; the model just

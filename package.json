@@ -12,7 +12,7 @@
     "build": "tsc && cp src/stats/schema.sql dist/stats/schema.sql && node scripts/write-dist-package-json.mjs",
     "start": "node dist/index.js",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
-    "sandbox:build": "docker build -t telegram-agent-sandbox ./sandbox",
+    "sandbox:build": "docker build --pull -t telegram-agent-sandbox ./sandbox",
     "docker:up": "node scripts/check-sandbox-image.mjs && docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
