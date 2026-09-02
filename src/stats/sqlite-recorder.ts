@@ -1,11 +1,9 @@
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { logger } from '../logger.js';
+import { migrate } from './migrations.js';
 import type { LlmCallStats, MessageStats, StatsRecorder, ToolCallStats } from './types.js';
-
-const SCHEMA_PATH = fileURLToPath(new URL('./schema.sql', import.meta.url));
 
 interface PendingMessage {
   id: number;
@@ -42,7 +40,7 @@ export class SqliteStatsRecorder implements StatsRecorder {
     try {
       mkdirSync(dirname(dbPath), { recursive: true });
       const db = new DatabaseSync(dbPath);
-      db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
+      migrate(db);
 
       this.db = db;
       this.insertMessageStmt = db.prepare(

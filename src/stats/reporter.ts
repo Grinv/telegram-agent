@@ -1,9 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
-import { writeFile, readFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const SCHEMA_PATH = fileURLToPath(new URL('./schema.sql', import.meta.url));
+import { migrate } from './migrations.js';
 
 interface ModelTotalsRow {
   model: string;
@@ -46,7 +44,7 @@ export class StatsReporter {
     await mkdir(dirname(this.dbPath), { recursive: true });
     const db = new DatabaseSync(this.dbPath);
     try {
-      db.exec(await readFile(SCHEMA_PATH, 'utf8'));
+      migrate(db);
 
       const modelTotals = db
         .prepare(

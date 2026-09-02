@@ -47,3 +47,12 @@ Closed the gap where handleMessage's catch block never called statsRecorder.reco
 - claude-sonnet-5: 81 requests, duration n/a, in 162 / out 41 542 (reasoning 15 072) / cache write 160 261 / cache read 12 709 854
 - Total: 12 911 819 tokens
 - Start: from change file creation time
+
+## 2026-09-02 — add-stats-db-migrations
+
+Added versioned SQLite migrations (PRAGMA user_version) for the stats database, wired into both the recorder and reporter, preserving existing rows across schema changes.
+
+- Time: 26m 42s total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 18:24 → 2026-09-02 18:51
+- claude-sonnet-5: 148 requests, duration n/a, in 296 / out 62 134 (reasoning 15 719) / cache write 254 502 / cache read 17 345 018
+- Total: 17 661 950 tokens
+- Start: from change file creation time
