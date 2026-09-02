@@ -1,3 +1,5 @@
+Sequencing note: this change depends on two others and should land after both. `add-agent-skills` introduces the system instruction that task 3.6 asserts is kept out of history — without it, that task has nothing to check. `fix-telegram-message-limit` makes a reply's delivery distinguishable from its production, which is what task 3.4 keys on; landing this change first would bake in the assumption that a produced reply was delivered.
+
 ## 1. History storage module (`src/history/`)
 
 - [ ] 1.1 Add `src/history/schema.sql` defining the `turns` table (`id INTEGER PRIMARY KEY`, `chat_id INTEGER NOT NULL`, `role TEXT NOT NULL`, `content TEXT NOT NULL`, `sender_id INTEGER`, `sender_name TEXT`, `created_at INTEGER NOT NULL`) with an index on `chat_id`, and `src/history/migrations.ts` (mirroring `src/stats/migrations.ts`: `Migration[]`, `migrate(db, migrations?)` using `PRAGMA user_version`). Verify with a unit test that a fresh `DatabaseSync` ends at the latest `user_version` with the `turns` table present.
@@ -13,10 +15,12 @@
 ## 3. Orchestrator integration
 
 - [ ] 3.1 Add a `historyStore: HistoryStore` dependency to `OrchestratorDeps` in `src/orchestrator.ts`.
-- [ ] 3.2 In `handleMessage`, before building `messages`, add a `/reset-context` branch: if `message.text === '/reset-context'`, call `historyStore.clearHistory(chatId)`, send a confirmation reply via `deps.client.sendMessage`, log it, and return without calling the router, `runLoop`, or any stats hooks. Verify with a unit test using a fake `historyStore`/`client` that history is cleared, a confirmation is sent, and neither `callLlm` nor `statsRecorder` methods are invoked.
+- [ ] 3.2 In `handleMessage`, before building `messages`, add a `/new` branch: if `message.text === '/new'`, call `historyStore.clearHistory(chatId)`, send a confirmation reply via `deps.client.sendMessage`, log it, and return without calling the router, `runLoop`, or any stats hooks. Verify with a unit test using a fake `historyStore`/`client` that history is cleared, a confirmation is sent, and neither `callLlm` nor `statsRecorder` methods are invoked.
 - [ ] 3.3 For normal messages, load `historyStore.getHistory(chatId)`, render each stored turn into a `ChatMessage` (`user` turns as `{ role: 'user', content: `${senderName}: ${content}` }`, `assistant` turns as `{ role: 'assistant', content }`), append the new incoming turn, and pass that full array as `messages` into `runLoop` (replacing the current single-item array). Verify with a unit test that a second message in the same chat produces an LLM request whose `messages` includes the first exchange.
-- [ ] 3.4 After a successful `runLoop` result, call `historyStore.appendTurn` for the user's turn (with `senderId`/`senderName` from `message.from`) and for the assistant's final reply; on a failed result, append only the user's turn. Verify with unit tests for both branches (success appends 2 turns; failure appends 1).
+- [ ] 3.4 Persist turns after the reply has been **delivered**, not merely produced: call `historyStore.appendTurn` for the user's turn (with `senderId`/`senderName` from `message.from`) and for the assistant's final reply once `client.sendMessage` has resolved; on a failed `runLoop` result, or when delivery throws, append only the user's turn. Verify with unit tests for all three branches (delivered success appends 2 turns; loop failure appends 1; delivery failure appends 1 — the last covers the spec scenario "Undelivered reply is not persisted").
 - [ ] 3.5 Verify with a unit test that intermediate tool-call/observation messages added to the in-loop `messages` array by `runLoop` are not passed to `historyStore.appendTurn` (only the final user turn + final assistant text are persisted).
+
+- [ ] 3.6 Ensure the agent's generated system instruction is prepended to the request but never passed to `historyStore.appendTurn`, and that it is reassembled per request rather than read back from storage. Verify with a unit test that after two messages in one chat, the stored turns contain no system instruction and the second request still carries one (covers "Generated instructions are not stored as history").
 
 ## 4. Config and wiring
 
@@ -25,6 +29,6 @@
 
 ## 5. End-to-end verification
 
-- [ ] 5.1 Add/extend an orchestrator integration test (fake Telegram client, fake `callLlm`, real `SqliteHistoryStore` against a temp db file) covering: two consecutive messages in the same chat see prior history; `/reset-context` clears it; a third chat's history is unaffected by another chat's reset. Verify the test passes under `node --test`.
+- [ ] 5.1 Add/extend an orchestrator integration test (fake Telegram client, fake `callLlm`, real `SqliteHistoryStore` against a temp db file) covering: two consecutive messages in the same chat see prior history; `/new` clears it; a third chat's history is unaffected by another chat's reset. Verify the test passes under `node --test`.
 - [ ] 5.2 Confirm `data/history.db` (and any temp/test db files) are covered by the existing `data/` gitignore entry — verify with `git status` after running the test suite that no db file appears as untracked.
 - [ ] 5.3 Run the full test suite and `tsc` build and confirm both pass with the new module included.
