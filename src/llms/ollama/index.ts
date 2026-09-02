@@ -1,5 +1,5 @@
 import { BaseConnector } from '../../llm/base-connector.js';
-import type { ChatMessage, LlmRequest, LlmResult, ToolCall, TokenUsage } from '../../llm/types.js';
+import type { ChatMessage, LlmRequest, LlmResult, ToolCall, ToolDefinition, TokenUsage } from '../../llm/types.js';
 
 const DEFAULT_BASE_URL = 'http://ollama:11434';
 const DEFAULT_MODEL = 'llama3';
@@ -22,6 +22,17 @@ interface OllamaChatMessage {
   role: string;
   content?: string;
   tool_calls?: OllamaChatToolCall[];
+  tool_name?: string;
+}
+
+/** OpenAI-compatible wrapper Ollama's /api/chat expects for each tool definition. */
+interface OllamaToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
 }
 
 interface OllamaChatResponse {
@@ -60,7 +71,7 @@ export class OllamaConnector extends BaseConnector {
         stream: false,
       };
       if (request.tools && request.tools.length > 0) {
-        body.tools = request.tools;
+        body.tools = request.tools.map((tool) => this.toOllamaTool(tool));
       }
       if (request.think !== undefined) {
         body.think = request.think;
@@ -117,16 +128,11 @@ export class OllamaConnector extends BaseConnector {
   }
 
   private buildMessages(request: LlmRequest): OllamaChatMessage[] {
-    const userMessage: OllamaChatMessage = { role: 'user', content: request.prompt };
-
     if (request.messages && request.messages.length > 0) {
-      return [
-        userMessage,
-        ...request.messages.map((msg) => this.toOllamaMessage(msg)),
-      ];
+      return request.messages.map((msg) => this.toOllamaMessage(msg));
     }
 
-    return [userMessage];
+    return [{ role: 'user', content: request.prompt }];
   }
 
   private toOllamaMessage(msg: ChatMessage): OllamaChatMessage {
@@ -140,8 +146,23 @@ export class OllamaConnector extends BaseConnector {
           ...(msg.tool_calls ? { tool_calls: msg.tool_calls.map((tc) => ({ function: { name: tc.name, arguments: tc.arguments } })) } : {}),
         };
       case 'tool':
-        return { role: 'tool', content: msg.content };
+        // Field name confirmed against the running Ollama 0.33.2: its api.Message
+        // struct has a ToolName field tagged json:"tool_name,omitempty" (verified
+        // via `strings` on the ollama binary), and a live /api/chat call with
+        // tool_name on a tool-role message was accepted and used by the model.
+        return { role: 'tool', content: msg.content, tool_name: msg.name };
     }
+  }
+
+  private toOllamaTool(tool: ToolDefinition): OllamaToolDefinition {
+    return {
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
+    };
   }
 
   private parseToolCalls(raw: OllamaChatToolCall[] | undefined): ToolCall[] {

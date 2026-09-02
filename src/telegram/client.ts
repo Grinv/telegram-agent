@@ -1,5 +1,3 @@
-const TELEGRAM_API_BASE = 'https://api.telegram.org';
-
 export interface TelegramMessage {
   message_id: number;
   chat: { id: number };
@@ -25,11 +23,12 @@ export interface TelegramReplier {
 export class TelegramClient implements TelegramReplier {
   constructor(
     private readonly token: string,
-    private readonly fetchImpl: typeof fetch = fetch
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly apiBaseUrl: string = 'https://api.telegram.org'
   ) {}
 
   private apiUrl(method: string): string {
-    return `${TELEGRAM_API_BASE}/bot${this.token}/${method}`;
+    return `${this.apiBaseUrl}/bot${this.token}/${method}`;
   }
 
   async getUpdates(offset: number | undefined, timeoutSeconds: number): Promise<TelegramUpdate[]> {

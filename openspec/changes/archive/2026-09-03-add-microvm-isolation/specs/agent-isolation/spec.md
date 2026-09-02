@@ -77,6 +77,8 @@ The system SHALL supply the agent's credentials by attaching them to outbound re
 
 A credential SHALL be bound to the hosts it may be used with, and SHALL NOT be attached to requests to any other host.
 
+Where a credential is held outside the boundary on the agent's behalf, that holder SHALL expose only the operations the agent actually uses, so that holding the credential outside does not grant more than the agent already has.
+
 #### Scenario: Agent authenticates without holding the credential
 - **WHEN** the agent makes a request to a host that one of its credentials is bound to
 - **THEN** the request is authenticated, and the credential value never appeared inside the boundary
@@ -88,6 +90,10 @@ A credential SHALL be bound to the hosts it may be used with, and SHALL NOT be a
 #### Scenario: Credential is not sent to an unbound host
 - **WHEN** a request is made to an allowed host that a credential is not bound to
 - **THEN** that credential is not attached to the request
+
+#### Scenario: Credential holder refuses operations the agent does not use
+- **WHEN** a process inside the boundary asks the credential holder for an API operation that is not one the agent uses
+- **THEN** the request is refused and the credential is not used for it
 
 ### Requirement: The agent does not run with host administrative rights
 The system SHALL run the agent inside the boundary as an unprivileged user, not as the boundary's administrative user.

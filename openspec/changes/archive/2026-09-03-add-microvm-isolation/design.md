@@ -14,6 +14,7 @@ Verified by running it:
 - **Why a loopback binding suffices.** The boundary does not route to the host itself. Its egress is intercepted by a proxy running on the host, which evaluates the policy and then dials the target from the host's own network namespace — an attempt to reach a bridge-bound service surfaced the proxy's error verbatim as `dial tcp 127.0.0.1:11435: connect: connection refused`. So the policy check happens before any connection exists, and the connection that does get made originates on the host.
 - **The agent runs unprivileged.** `id` inside reported `uid=1000(agent)`, in the `docker` group, not root.
 - **The real bot starts and works inside.** Running the compiled bot with a deliberately invalid token produced Telegram `HTTP 404` (the request reached `api.telegram.org`) while Ollama's `/api/tags` returned `403` (blocked, as it was not allowed) — the two outcomes in the same run demonstrate the allowlist is discriminating rather than failing open or closed.
+- **Managed secrets are header-only, so the Telegram token cannot be one.** `sbx secret set` covers a fixed service list (anthropic, github, openai, openrouter and eight others) with no Telegram entry, and the experimental `sbx secret set-custom` binds an arbitrary host but, in its own words, "the proxy replaces the placeholder with the real secret in the request **headers**". The Telegram Bot API carries its token in the URL path (`/bot<TOKEN>/getMe`), never in a header. Measured: with a custom secret bound to `api.telegram.org` and the generated placeholder in `TELEGRAM_BOT_TOKEN`, a request from inside to `https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getMe` returned Telegram's own `404 {"ok":false,"description":"Not Found"}` — the request reached Telegram, and the placeholder was not substituted.
 
 Two costs surfaced:
 
@@ -29,7 +30,8 @@ Two costs surfaced:
 
 **Non-Goals:**
 - Making the isolated deployment the only supported way to run the bot. A plain Docker host stays supported.
-- Hand-written egress proxies or credential brokers. Both are superseded by platform features.
+- A hand-written egress proxy or domain allowlist. Superseded by platform features.
+- A general credential-brokering layer. One narrow broker is needed for Telegram specifically (see Decisions); every other credential the deployment gains should use `sbx secret` instead.
 - Isolating anything below the tool sandbox that already exists.
 
 ## Decisions
@@ -48,7 +50,13 @@ An earlier revision of this design moved Ollama inside the boundary, on the beli
 
 **Grant directories explicitly and narrowly.** The spike mounted the whole repository read-write, which is convenient and wrong as a default. The deployment grants what the agent needs and nothing else, with `:ro` wherever writing is not required.
 
-**The token becomes a bound secret.** `TELEGRAM_BOT_TOKEN` moves from `.env` to `sbx secret` with a binding to `api.telegram.org`. This is the change that makes "no keys inside the boundary" literally true rather than aspirational.
+**The token is held by a host-side broker, because it cannot be a bound secret.** The intent — the token value never exists inside the boundary — stands; the mechanism changed once measurement showed `sbx` substitutes secrets into headers only, while Telegram authenticates by URL path (see Context). The three ways out were: put the token in the boundary's environment and give up the guarantee; move to a hosted LLM API and demonstrate credential binding on that instead, leaving Telegram's token inside anyway; or hold the token outside the boundary in something that speaks Telegram's own auth shape. The third is chosen, because only it makes the guarantee true for the credential the agent actually holds.
+
+The broker is `scripts/telegram-broker.mjs`: a Node process on the host, no dependencies, bound to `127.0.0.1`. It accepts `/bot<anything>/<method>`, discards the token segment it was handed, and reissues the call against `https://api.telegram.org/bot<real token>/<method>`. Inside the boundary `TELEGRAM_BOT_TOKEN` holds a non-secret placeholder — the bot's config still requires the variable to be non-empty, and the value is now worthless — and `TELEGRAM_API_BASE_URL` points at `http://host.docker.internal:<broker port>`, reachable only through the same kind of explicit `localhost:<port>` grant that Ollama uses.
+
+This costs the one source change this proposal otherwise avoids: `TELEGRAM_API_BASE` in `src/telegram/client.ts` becomes configuration rather than a constant. That is a small and independently reasonable change — the base URL was hardcoded, which also made the client awkward to point at a test double.
+
+The broker allows only `getUpdates` and `sendMessage`, the two methods the client calls. It is a credential holder, so it grants exactly the capability the agent already has and nothing more; widening it is a deliberate edit, not a default.
 
 ## Risks / Trade-offs
 
@@ -61,5 +69,9 @@ An earlier revision of this design moved Ollama inside the boundary, on the beli
 **A wrong conclusion was drawn once already about host reachability** → The first spike concluded the host was unreachable, on evidence that turned out to be worthless (nothing was listening on the port under test, and the allow rule named the wrong resource form). The corrected behaviour — reachable only via a `localhost:<port>` grant, to a service bound on all interfaces — is what the spec now requires. The lesson generalises: a refused request is not evidence of an enforced boundary unless the same request succeeds once the boundary is opened. Task verifications in this change are written as paired checks for that reason.
 
 **The spike's `shell` kit installed its own policy rule** → `sbx policy ls` showed a `kit`-sourced allow rule scoped to the spike boundary, separate from the rules added by hand. The provisioning step must inspect what a chosen kit grants rather than assuming the allow list contains only explicit entries.
+
+**The broker is a host process holding the token** → Anything that can reach `127.0.0.1:<broker port>` on the host can drive the bot's Telegram account, without ever reading the token. That is a real widening compared to a `.env` file readable only by its owner: the file is protected by filesystem permissions, the port is protected by nothing but being loopback-only. The mitigations are the method allowlist (`getUpdates`, `sendMessage` — no `deleteWebhook`, no `setMyCommands`, no `logOut`) and the fact that the broker holds no state and can be stopped independently of the boundary. The exposure is the same shape as the host's Ollama, which is already accepted here: a loopback service the boundary reaches through one explicit grant.
+
+**The broker is a second thing that can be down** → With it stopped, the bot inside cannot reach Telegram at all, and the failure looks like a network outage rather than a missing process. The startup path already surfaces `getUpdates` failures, and the runbook lists starting the broker before the boundary.
 
 **Two isolation layers can mask a misconfiguration** → With the microVM outside and the per-call container inside, a tool sandbox that silently lost its restrictions would still look contained. The existing sandbox tests keep asserting the inner layer's flags directly, so the inner guarantees are verified independently of the outer one.

@@ -4,3 +4,4 @@ dist/
 *.log
 openspec/.token-usage-state.json
 data/
+.sbx/

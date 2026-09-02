@@ -33,6 +33,12 @@ Access SHALL require an explicit grant naming the provider's port. Without that 
 ### Requirement: The bot's credentials are supplied without a file on disk
 The system SHALL support supplying the bot's Telegram credential to the isolated deployment without writing it into an environment file that the agent can read.
 
+The isolated deployment SHALL reach the Telegram API only through the component that holds the credential, and SHALL NOT allow the boundary a direct route to the Telegram API.
+
 #### Scenario: Bot authenticates in the isolated deployment
 - **WHEN** the bot runs inside the isolation boundary and calls the Telegram API
 - **THEN** the call is authenticated, and no environment file inside the boundary contains the token
+
+#### Scenario: The boundary has no direct route to Telegram
+- **WHEN** a process inside the boundary requests the Telegram API directly rather than through the credential holder
+- **THEN** the request fails, because that host is not allowed for the boundary

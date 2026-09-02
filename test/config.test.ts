@@ -5,6 +5,7 @@ import {
   resolveLlmProvider,
   resolveTelegramBotToken,
   resolveOllamaBaseUrl,
+  resolveTelegramApiBaseUrl,
   resolveSandboxImage,
   resolveSandboxTimeoutMs,
   resolveSandboxMemoryLimit,
@@ -74,6 +75,22 @@ test('resolveOllamaBaseUrl defaults to http://ollama:11434', () => {
 
 test('resolveOllamaBaseUrl returns the provided value', () => {
   assert.equal(resolveOllamaBaseUrl('http://127.0.0.1:11434'), 'http://127.0.0.1:11434');
+});
+
+test('resolveTelegramApiBaseUrl defaults to https://api.telegram.org', () => {
+  assert.equal(resolveTelegramApiBaseUrl(undefined), 'https://api.telegram.org');
+});
+
+test('resolveTelegramApiBaseUrl returns the provided value', () => {
+  assert.equal(resolveTelegramApiBaseUrl('http://127.0.0.1:8081'), 'http://127.0.0.1:8081');
+});
+
+test('resolveTelegramApiBaseUrl strips a trailing slash', () => {
+  assert.equal(resolveTelegramApiBaseUrl('http://127.0.0.1:8081/'), 'http://127.0.0.1:8081');
+});
+
+test('resolveTelegramApiBaseUrl throws ConfigError for an invalid URL', () => {
+  assert.throws(() => resolveTelegramApiBaseUrl('not a url'), ConfigError);
 });
 
 test('resolveSandboxImage defaults to telegram-agent-sandbox', () => {

@@ -5,6 +5,7 @@ export interface AppConfig {
   llmProvider: string;
   llmTimeoutMs: number;
   ollamaBaseUrl: string;
+  telegramApiBaseUrl: string;
   sandboxImage: string;
   sandboxTimeoutMs: number;
   sandboxMemoryLimit: string;
@@ -46,6 +47,17 @@ export function resolveTelegramBotToken(raw: string | undefined): string {
 /** Pure: resolves OLLAMA_BASE_URL with the Docker-network default. */
 export function resolveOllamaBaseUrl(raw: string | undefined): string {
   return raw ?? 'http://ollama:11434';
+}
+
+/** Pure: resolves and validates TELEGRAM_API_BASE_URL, trimming any trailing slash. */
+export function resolveTelegramApiBaseUrl(raw: string | undefined): string {
+  const value = raw ?? 'https://api.telegram.org';
+  try {
+    new URL(value);
+  } catch {
+    throw new ConfigError(`TELEGRAM_API_BASE_URL must be a valid URL (got "${value}")`);
+  }
+  return value.replace(/\/+$/, '');
 }
 
 /** Pure: resolves SANDBOX_IMAGE. */
@@ -171,6 +183,7 @@ export function loadConfig(): AppConfig {
     llmProvider: resolveLlmProvider(process.env.LLM_PROVIDER),
     llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 15000),
     ollamaBaseUrl: resolveOllamaBaseUrl(process.env.OLLAMA_BASE_URL),
+    telegramApiBaseUrl: resolveTelegramApiBaseUrl(process.env.TELEGRAM_API_BASE_URL),
     sandboxImage: resolveSandboxImage(process.env.SANDBOX_IMAGE),
     sandboxTimeoutMs: resolveSandboxTimeoutMs(process.env.SANDBOX_TIMEOUT_MS),
     sandboxMemoryLimit: resolveSandboxMemoryLimit(process.env.SANDBOX_MEMORY_LIMIT),

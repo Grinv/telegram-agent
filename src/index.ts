@@ -16,7 +16,7 @@ registerGlobalErrorHandlers();
 
 try {
   const config = loadConfig();
-  const client = new TelegramClient(config.telegramBotToken);
+  const client = new TelegramClient(config.telegramBotToken, fetch, config.telegramApiBaseUrl);
 
   const statsRecorder = config.statsEnabled
     ? createStatsRecorder(config.statsDbPath, config.statsStorePrompts)

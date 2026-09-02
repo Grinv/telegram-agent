@@ -43,6 +43,19 @@ test('sendMessage posts chat_id and text to the Bot API', async () => {
   assert.deepEqual(JSON.parse(capturedBody ?? '{}'), { chat_id: 42, text: 'hello' });
 });
 
+test('client hits the configured base URL instead of api.telegram.org', async () => {
+  const calls: string[] = [];
+  const fakeFetch = (async (url: string) => {
+    calls.push(url);
+    return jsonResponse({ ok: true, result: [] });
+  }) as typeof fetch;
+
+  const client = new TelegramClient('TEST_TOKEN', fakeFetch, 'http://127.0.0.1:8081');
+  await client.getUpdates(undefined, 30);
+
+  assert.match(calls[0], /^http:\/\/127\.0\.0\.1:8081\/botTEST_TOKEN\/getUpdates/);
+});
+
 test('getUpdates throws when Telegram responds with ok:false', async () => {
   const fakeFetch = (async () => jsonResponse({ ok: false, description: 'bad request' })) as typeof fetch;
   const client = new TelegramClient('TEST_TOKEN', fakeFetch);

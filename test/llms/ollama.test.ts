@@ -136,13 +136,14 @@ test('returns text-only result (with usage) when no tool_calls in the response',
   }
 });
 
-test('sends the full message list to /api/chat when conversation history is provided', async () => {
+test('sends the full message list to /api/chat when conversation history is provided, without duplicating the prompt', async () => {
   const { fetch: fakeFetch, bodies } = capturingFetch(
     jsonResponse(200, { message: { role: 'assistant', content: 'final answer' } }),
   );
   const connector = new OllamaConnector({}, fakeFetch);
 
   const messages: ChatMessage[] = [
+    { role: 'user', content: 'list files' },
     { role: 'assistant', content: 'I will use a tool', tool_calls: [{ name: 'execute_command', arguments: { command: 'ls' } }] },
     { role: 'tool', content: 'file1.txt\nfile2.txt', name: 'execute_command' },
   ];
@@ -150,12 +151,118 @@ test('sends the full message list to /api/chat when conversation history is prov
   await connector.callLlm({ prompt: 'list files', messages });
 
   const body = bodies[0] as { messages: Array<{ role: string; content?: string }> };
-  assert.ok(body.messages.length >= 3);
+  assert.equal(body.messages.length, 3);
   assert.equal(body.messages[0].role, 'user');
   assert.equal(body.messages[0].content, 'list files');
   assert.equal(body.messages[1].role, 'assistant');
   assert.equal(body.messages[2].role, 'tool');
   assert.equal(body.messages[2].content, 'file1.txt\nfile2.txt');
+});
+
+test('does not duplicate the latest user turn when messages ends with it (task 2.1)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'a2' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'q1' },
+    { role: 'assistant', content: 'a1' },
+    { role: 'user', content: 'q2' },
+  ];
+
+  await connector.callLlm({ prompt: 'q2', messages });
+
+  const body = bodies[0] as { messages: Array<{ role: string; content?: string }> };
+  assert.equal(body.messages.length, 3);
+  assert.deepEqual(
+    body.messages.map((m) => m.content),
+    ['q1', 'a1', 'q2'],
+  );
+  assert.equal(body.messages.filter((m) => m.content === 'q2').length, 1);
+  assert.equal(body.messages[2].content, 'q2');
+});
+
+test('sends a single user message when prompt is given without messages (task 2.2)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'ok' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  await connector.callLlm({ prompt: 'hello there' });
+
+  const body = bodies[0] as { messages: Array<{ role: string; content?: string }> };
+  assert.equal(body.messages.length, 1);
+  assert.equal(body.messages[0].role, 'user');
+  assert.equal(body.messages[0].content, 'hello there');
+});
+
+test('an empty messages array falls back to the single prompt message (task 2.2)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'ok' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  await connector.callLlm({ prompt: 'hello there', messages: [] });
+
+  const body = bodies[0] as { messages: Array<{ role: string; content?: string }> };
+  assert.equal(body.messages.length, 1);
+  assert.equal(body.messages[0].role, 'user');
+  assert.equal(body.messages[0].content, 'hello there');
+});
+
+test('two tool-role messages with different names are sent with distinguishable tool names (task 2.3)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'final answer' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'weather and time please' },
+    {
+      role: 'assistant',
+      content: '',
+      tool_calls: [
+        { name: 'get_weather', arguments: { city: 'Paris' } },
+        { name: 'get_time', arguments: { city: 'Paris' } },
+      ],
+    },
+    { role: 'tool', content: 'sunny, 22C', name: 'get_weather' },
+    { role: 'tool', content: '14:00', name: 'get_time' },
+  ];
+
+  await connector.callLlm({ prompt: 'weather and time please', messages });
+
+  const body = bodies[0] as { messages: Array<{ role: string; content?: string; tool_name?: string }> };
+  const toolMessages = body.messages.filter((m) => m.role === 'tool');
+  assert.equal(toolMessages.length, 2);
+  assert.equal(toolMessages[0].tool_name, 'get_weather');
+  assert.equal(toolMessages[0].content, 'sunny, 22C');
+  assert.equal(toolMessages[1].tool_name, 'get_time');
+  assert.equal(toolMessages[1].content, '14:00');
+  assert.notEqual(toolMessages[0].tool_name, toolMessages[1].tool_name);
+});
+
+test('tool definitions are wrapped in the OpenAI-compatible function shape Ollama expects (task 2.4)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'ok' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  await connector.callLlm({
+    prompt: 'run echo hello',
+    tools: [{ name: 'execute_command', description: 'Run a command', parameters: { type: 'object' } }],
+  });
+
+  const body = bodies[0] as {
+    tools?: Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>;
+  };
+  assert.ok(body.tools);
+  assert.equal(body.tools![0].type, 'function');
+  assert.equal(body.tools![0].function.name, 'execute_command');
+  assert.equal(body.tools![0].function.description, 'Run a command');
+  assert.deepEqual(body.tools![0].function.parameters, { type: 'object' });
+  assert.equal((body.tools![0] as unknown as { name?: string }).name, undefined);
 });
 
 test('request.model overrides the connector default model in the request body', async () => {

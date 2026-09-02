@@ -73,6 +73,8 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for a full runbook (getting started, what run
 
 `docker:up` refuses to start if the sandbox image hasn't been built yet, pointing you back to `npm run sandbox:build`.
 
+There's also an **isolated deployment**, where the bot itself (not just its tool sandboxes) runs inside a hardware-isolated microVM managed by Docker Sandboxes (`sbx`), reachable from the host through nothing but two explicit port grants and a token-holding broker process. It's optional and requires macOS on Apple Silicon; see [DEPLOYMENT.md](DEPLOYMENT.md#isolated-deployment-microvm-boundary) for setup and the full rationale.
+
 ## Testing
 
 ```bash
