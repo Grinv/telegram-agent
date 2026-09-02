@@ -1,5 +1,5 @@
-import type { LlmResult } from './types.js';
+import type { LlmRequest, LlmResult } from './types.js';
 
 export abstract class BaseConnector {
-  abstract callLlm(prompt: string): Promise<LlmResult>;
+  abstract callLlm(request: LlmRequest): Promise<LlmResult>;
 }

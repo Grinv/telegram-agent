@@ -46,4 +46,7 @@ operations:
         duplication, and don't build for hypothetical future requirements.
       - Prefer pure functions (no hidden state/side effects) wherever practical,
         so logic is easy to unit test in isolation.
+      - Strive for independent, loosely coupled modules with clear boundaries.
+        Each module should be testable in isolation - no cross-module imports
+        for core logic, dependencies injected rather than hardcoded.
       - Cover new logic with tests as you implement it, not as an afterthought.

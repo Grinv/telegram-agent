@@ -18,3 +18,18 @@ Read these first — they're the source of truth, not restated here:
 ## Git commits
 
 Don't add a `Co-Authored-By` trailer to commits in this repo.
+
+## Spec token accounting
+
+`/opsx:propose` and `/opsx:archive` are wrapped by a `UserPromptSubmit` hook
+(`.claude/settings.json` → `scripts/spec-usage.mjs hook`): propose drops a start
+marker, archive reminds you to close the entry. After a successful archive run
+
+```bash
+node scripts/spec-usage.mjs finish --change "<name>" --summary "<what was done, 1-2 sentences>"
+```
+
+which appends date, elapsed time, per-model generation time and token breakdown to
+[openspec/token-usage.md](openspec/token-usage.md). `report` prints the same numbers
+without writing; `status` shows the open marker. Don't run `finish` if the archive
+did not happen.

@@ -1,0 +1,27 @@
+services:
+  bot:
+    build: .
+    image: telegram-agent-bot
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - ollama
+    networks:
+      - bot-net
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - bot-net
+    restart: unless-stopped
+
+networks:
+  bot-net:
+
+volumes:
+  ollama-data:

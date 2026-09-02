@@ -12,7 +12,7 @@ function delay(ms: number): Promise<void> {
 }
 
 test('resolves with the runner result on a well-behaved run', async () => {
-  const result = await callLlmIsolated('hi', {
+  const result = await callLlmIsolated({ prompt: 'hi' }, {
     provider: 'stub',
     timeoutMs: 2000,
     runnerPath: fixture('success-runner'),
@@ -22,7 +22,7 @@ test('resolves with the runner result on a well-behaved run', async () => {
 });
 
 test('resolves with PROVIDER_ERROR when the runner reports a failure', async () => {
-  const result = await callLlmIsolated('hi', {
+  const result = await callLlmIsolated({ prompt: 'hi' }, {
     provider: 'stub',
     timeoutMs: 2000,
     runnerPath: fixture('error-runner'),
@@ -35,7 +35,7 @@ test('resolves with PROVIDER_ERROR when the runner reports a failure', async () 
 test('kills the child and resolves with TIMEOUT when the runner hangs', async () => {
   let childPid: number | undefined;
 
-  const result = await callLlmIsolated('hi', {
+  const result = await callLlmIsolated({ prompt: 'hi' }, {
     provider: 'stub',
     timeoutMs: 200,
     runnerPath: fixture('hang-runner'),
@@ -53,7 +53,7 @@ test('kills the child and resolves with TIMEOUT when the runner hangs', async ()
 });
 
 test('resolves with PROVIDER_ERROR when the runner crashes before responding', async () => {
-  const result = await callLlmIsolated('hi', {
+  const result = await callLlmIsolated({ prompt: 'hi' }, {
     provider: 'stub',
     timeoutMs: 2000,
     runnerPath: fixture('crash-runner'),

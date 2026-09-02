@@ -1,7 +1,7 @@
 import { fork, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import type { LlmResult } from './types.js';
+import type { LlmRequest, LlmResult } from './types.js';
 
 // Mirror this module's own extension (.ts under tsx in dev, .js in the built dist/)
 // so the forked runner is resolved the same way regardless of how we're running.
@@ -17,7 +17,7 @@ export interface CallLlmIsolatedOptions {
   onChildSpawned?: (child: ChildProcess) => void;
 }
 
-export function callLlmIsolated(prompt: string, options: CallLlmIsolatedOptions): Promise<LlmResult> {
+export function callLlmIsolated(request: LlmRequest, options: CallLlmIsolatedOptions): Promise<LlmResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const runnerPath = options.runnerPath ?? DEFAULT_RUNNER_PATH;
 
@@ -57,6 +57,6 @@ export function callLlmIsolated(prompt: string, options: CallLlmIsolatedOptions)
       });
     });
 
-    child.send({ prompt, provider: options.provider });
+    child.send({ request, provider: options.provider });
   });
 }

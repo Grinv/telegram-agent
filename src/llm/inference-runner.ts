@@ -1,15 +1,15 @@
 import { createConnector, ConnectorNotConfiguredError } from './connector-registry.js';
-import type { LlmResult } from './types.js';
+import type { LlmRequest, LlmResult } from './types.js';
 
 interface RunnerRequest {
-  prompt: string;
+  request: LlmRequest;
   provider: string;
 }
 
 async function run(request: RunnerRequest): Promise<LlmResult> {
   try {
     const connector = createConnector(request.provider);
-    return await connector.callLlm(request.prompt);
+    return await connector.callLlm(request.request);
   } catch (error) {
     if (error instanceof ConnectorNotConfiguredError) {
       return { ok: false, reason: 'NOT_CONFIGURED', message: error.message };

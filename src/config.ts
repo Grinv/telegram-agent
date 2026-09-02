@@ -4,6 +4,15 @@ export interface AppConfig {
   telegramBotToken: string;
   llmProvider: string;
   llmTimeoutMs: number;
+  ollamaBaseUrl: string;
+  sandboxImage: string;
+  sandboxTimeoutMs: number;
+  sandboxMemoryLimit: string;
+  sandboxCpuLimit: string;
+  toolUseMaxIterations: number;
+  statsDbPath: string;
+  statsStorePrompts: boolean;
+  statsEnabled: boolean;
 }
 
 export class ConfigError extends Error {}
@@ -29,6 +38,79 @@ export function resolveTelegramBotToken(raw: string | undefined): string {
   return raw;
 }
 
+/** Pure: resolves OLLAMA_BASE_URL with the Docker-network default. */
+export function resolveOllamaBaseUrl(raw: string | undefined): string {
+  return raw ?? 'http://ollama:11434';
+}
+
+/** Pure: resolves SANDBOX_IMAGE. */
+export function resolveSandboxImage(raw: string | undefined): string {
+  return raw ?? 'telegram-agent-sandbox';
+}
+
+/** Pure: resolves SANDBOX_TIMEOUT_MS (must be a positive integer). */
+export function resolveSandboxTimeoutMs(raw: string | undefined): number {
+  const value = Number(raw ?? 30000);
+  if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
+    throw new ConfigError(
+      `SANDBOX_TIMEOUT_MS must be a positive integer (got "${raw ?? '30000'}")`
+    );
+  }
+  return value;
+}
+
+/** Pure: resolves SANDBOX_MEMORY_LIMIT (Docker --memory format, e.g. "256m"). */
+export function resolveSandboxMemoryLimit(raw: string | undefined): string {
+  return raw ?? '256m';
+}
+
+/** Pure: resolves SANDBOX_CPU_LIMIT (Docker --cpus format, e.g. "0.5"). */
+export function resolveSandboxCpuLimit(raw: string | undefined): string {
+  const value = raw ?? '0.5';
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new ConfigError(
+      `SANDBOX_CPU_LIMIT must be a positive number (got "${value}")`
+    );
+  }
+  return value;
+}
+
+/** Pure: resolves TOOL_USE_MAX_ITERATIONS (must be a positive integer). */
+export function resolveToolUseMaxIterations(raw: string | undefined): number {
+  const value = Number(raw ?? 5);
+  if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
+    throw new ConfigError(
+      `TOOL_USE_MAX_ITERATIONS must be a positive integer (got "${raw ?? '5'}")`
+    );
+  }
+  return value;
+}
+
+/** Pure: resolves STATS_DB_PATH. */
+export function resolveStatsDbPath(raw: string | undefined): string {
+  return raw ?? 'data/stats.db';
+}
+
+/** Pure: parses a "true"/"false" env var (case-insensitive), defaulting when unset. */
+function resolveBoolean(raw: string | undefined, envVarName: string, defaultValue: boolean): boolean {
+  if (raw === undefined) return defaultValue;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  throw new ConfigError(`${envVarName} must be "true" or "false" (got "${raw}")`);
+}
+
+/** Pure: resolves STATS_STORE_PROMPTS (default true). */
+export function resolveStatsStorePrompts(raw: string | undefined): boolean {
+  return resolveBoolean(raw, 'STATS_STORE_PROMPTS', true);
+}
+
+/** Pure: resolves STATS_ENABLED (default true). */
+export function resolveStatsEnabled(raw: string | undefined): boolean {
+  return resolveBoolean(raw, 'STATS_ENABLED', true);
+}
+
 export function loadConfig(): AppConfig {
   try {
     process.loadEnvFile();
@@ -36,9 +118,18 @@ export function loadConfig(): AppConfig {
     // .env is optional - environment variables may be supplied directly.
   }
 
-  const telegramBotToken = resolveTelegramBotToken(process.env.TELEGRAM_BOT_TOKEN);
-  const llmProvider = resolveLlmProvider(process.env.LLM_PROVIDER);
-  const llmTimeoutMs = Number(process.env.LLM_TIMEOUT_MS ?? 15000);
-
-  return { telegramBotToken, llmProvider, llmTimeoutMs };
+  return {
+    telegramBotToken: resolveTelegramBotToken(process.env.TELEGRAM_BOT_TOKEN),
+    llmProvider: resolveLlmProvider(process.env.LLM_PROVIDER),
+    llmTimeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 15000),
+    ollamaBaseUrl: resolveOllamaBaseUrl(process.env.OLLAMA_BASE_URL),
+    sandboxImage: resolveSandboxImage(process.env.SANDBOX_IMAGE),
+    sandboxTimeoutMs: resolveSandboxTimeoutMs(process.env.SANDBOX_TIMEOUT_MS),
+    sandboxMemoryLimit: resolveSandboxMemoryLimit(process.env.SANDBOX_MEMORY_LIMIT),
+    sandboxCpuLimit: resolveSandboxCpuLimit(process.env.SANDBOX_CPU_LIMIT),
+    toolUseMaxIterations: resolveToolUseMaxIterations(process.env.TOOL_USE_MAX_ITERATIONS),
+    statsDbPath: resolveStatsDbPath(process.env.STATS_DB_PATH),
+    statsStorePrompts: resolveStatsStorePrompts(process.env.STATS_STORE_PROMPTS),
+    statsEnabled: resolveStatsEnabled(process.env.STATS_ENABLED),
+  };
 }

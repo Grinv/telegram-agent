@@ -1,6 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfig, resolveLlmProvider, resolveTelegramBotToken, ConfigError } from '../src/config.js';
+import {
+  loadConfig,
+  resolveLlmProvider,
+  resolveTelegramBotToken,
+  resolveOllamaBaseUrl,
+  resolveSandboxImage,
+  resolveSandboxTimeoutMs,
+  resolveSandboxMemoryLimit,
+  resolveSandboxCpuLimit,
+  resolveToolUseMaxIterations,
+  resolveStatsDbPath,
+  resolveStatsStorePrompts,
+  resolveStatsEnabled,
+  ConfigError,
+} from '../src/config.js';
 
 // resolveTelegramBotToken and resolveLlmProvider are pure (no env/filesystem access),
 // so these run hermetically regardless of what's in the real local .env - unlike
@@ -45,4 +59,110 @@ test('resolveLlmProvider accepts known provider names', () => {
 
 test('resolveLlmProvider throws ConfigError for an unrecognized value', () => {
   assert.throws(() => resolveLlmProvider('tinyllama'), ConfigError);
+});
+
+// --- New sandbox config resolvers ---
+
+test('resolveOllamaBaseUrl defaults to http://ollama:11434', () => {
+  assert.equal(resolveOllamaBaseUrl(undefined), 'http://ollama:11434');
+});
+
+test('resolveOllamaBaseUrl returns the provided value', () => {
+  assert.equal(resolveOllamaBaseUrl('http://127.0.0.1:11434'), 'http://127.0.0.1:11434');
+});
+
+test('resolveSandboxImage defaults to telegram-agent-sandbox', () => {
+  assert.equal(resolveSandboxImage(undefined), 'telegram-agent-sandbox');
+});
+
+test('resolveSandboxImage returns the provided value', () => {
+  assert.equal(resolveSandboxImage('custom-sandbox'), 'custom-sandbox');
+});
+
+test('resolveSandboxTimeoutMs defaults to 30000', () => {
+  assert.equal(resolveSandboxTimeoutMs(undefined), 30000);
+});
+
+test('resolveSandboxTimeoutMs returns the provided value', () => {
+  assert.equal(resolveSandboxTimeoutMs('60000'), 60000);
+});
+
+test('resolveSandboxTimeoutMs throws ConfigError for non-positive or non-integer values', () => {
+  assert.throws(() => resolveSandboxTimeoutMs('0'), ConfigError);
+  assert.throws(() => resolveSandboxTimeoutMs('-1'), ConfigError);
+  assert.throws(() => resolveSandboxTimeoutMs('abc'), ConfigError);
+  assert.throws(() => resolveSandboxTimeoutMs('1.5'), ConfigError);
+});
+
+test('resolveSandboxMemoryLimit defaults to 256m', () => {
+  assert.equal(resolveSandboxMemoryLimit(undefined), '256m');
+});
+
+test('resolveSandboxMemoryLimit returns the provided value', () => {
+  assert.equal(resolveSandboxMemoryLimit('512m'), '512m');
+});
+
+test('resolveSandboxCpuLimit defaults to 0.5', () => {
+  assert.equal(resolveSandboxCpuLimit(undefined), '0.5');
+});
+
+test('resolveSandboxCpuLimit returns the provided value', () => {
+  assert.equal(resolveSandboxCpuLimit('1.0'), '1.0');
+});
+
+test('resolveSandboxCpuLimit throws ConfigError for non-positive values', () => {
+  assert.throws(() => resolveSandboxCpuLimit('0'), ConfigError);
+  assert.throws(() => resolveSandboxCpuLimit('-1'), ConfigError);
+  assert.throws(() => resolveSandboxCpuLimit('abc'), ConfigError);
+});
+
+test('resolveToolUseMaxIterations defaults to 5', () => {
+  assert.equal(resolveToolUseMaxIterations(undefined), 5);
+});
+
+test('resolveToolUseMaxIterations returns the provided value', () => {
+  assert.equal(resolveToolUseMaxIterations('10'), 10);
+});
+
+test('resolveToolUseMaxIterations throws ConfigError for non-positive or non-integer values', () => {
+  assert.throws(() => resolveToolUseMaxIterations('0'), ConfigError);
+  assert.throws(() => resolveToolUseMaxIterations('-1'), ConfigError);
+  assert.throws(() => resolveToolUseMaxIterations('abc'), ConfigError);
+  assert.throws(() => resolveToolUseMaxIterations('2.5'), ConfigError);
+});
+
+// --- Stats config resolvers ---
+
+test('resolveStatsDbPath defaults to data/stats.db', () => {
+  assert.equal(resolveStatsDbPath(undefined), 'data/stats.db');
+});
+
+test('resolveStatsDbPath returns the provided value', () => {
+  assert.equal(resolveStatsDbPath('/tmp/custom.db'), '/tmp/custom.db');
+});
+
+test('resolveStatsStorePrompts defaults to true', () => {
+  assert.equal(resolveStatsStorePrompts(undefined), true);
+});
+
+test('resolveStatsStorePrompts parses "true" and "false" case-insensitively', () => {
+  assert.equal(resolveStatsStorePrompts('true'), true);
+  assert.equal(resolveStatsStorePrompts('FALSE'), false);
+});
+
+test('resolveStatsStorePrompts throws ConfigError for an invalid value', () => {
+  assert.throws(() => resolveStatsStorePrompts('yes'), ConfigError);
+});
+
+test('resolveStatsEnabled defaults to true', () => {
+  assert.equal(resolveStatsEnabled(undefined), true);
+});
+
+test('resolveStatsEnabled parses "true" and "false" case-insensitively', () => {
+  assert.equal(resolveStatsEnabled('true'), true);
+  assert.equal(resolveStatsEnabled('False'), false);
+});
+
+test('resolveStatsEnabled throws ConfigError for an invalid value', () => {
+  assert.throws(() => resolveStatsEnabled('nope'), ConfigError);
 });
