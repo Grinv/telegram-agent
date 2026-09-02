@@ -38,7 +38,7 @@ These verify spec scenarios that cannot be asserted with fakes, because they are
 ## 7. Documentation
 
 - [ ] 7.1 Document `SANDBOX_NETWORK` and `SANDBOX_NETWORK_NAME` in `.env.example`, stating that the default is full isolation and that egress mode requires rebuilding the sandbox image. Verify: the file lists both variables with their defaults.
-- [ ] 7.2 Add a section to `README.md` covering the two modes, what egress mode keeps unreachable, and the residual risk that the host remains addressable through the Docker gateway (see design.md — Risks). Update the existing sandbox description, which currently states unconditionally that the sandbox has no network access. Verify: README no longer claims network isolation is unconditional.
+- [ ] 7.2 Add a section to `README.md` covering the two modes, what egress mode keeps unreachable, the residual risk that the host remains addressable through the Docker gateway, and the guidance that egress mode belongs inside the isolation boundary where that risk is bounded (see design.md — Risks). Update the existing sandbox description, which currently states unconditionally that the sandbox has no network access. Verify: README no longer claims network isolation is unconditional, and points to the isolated deployment as the intended home for egress mode.
 
 ## 8. Final verification
 

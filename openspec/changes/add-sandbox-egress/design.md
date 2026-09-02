@@ -19,7 +19,9 @@ The deployment topology matters for what "opening the network" costs: `docker-co
 
 ## Decisions
 
-**Two coarse modes (`isolated`, `egress`) rather than a filtering proxy.** The thorough design is an egress proxy container with a domain allowlist: sandboxes join an `--internal` network with no route out, and only the proxy can reach the internet. It is genuinely more secure. It also adds a long-lived container, a proxy config, TLS interception or CONNECT-allowlisting, and a failure mode for every request. That is a large amount of machinery for a bot whose networked use case today is "fetch a weather page". The two-mode design is the smallest thing that unblocks the skill work while keeping the default safe, and it does not foreclose the proxy — a third mode can be added later without changing the first two.
+**Two coarse modes (`isolated`, `egress`) rather than a filtering proxy of our own.** The thorough design is an egress proxy container with a domain allowlist: sandboxes join an `--internal` network with no route out, and only the proxy can reach the internet. Building that here was rejected twice over. It adds a long-lived container, a proxy config, TLS interception or CONNECT-allowlisting, and a failure mode on every request — a lot of machinery for a bot whose networked use case today is "fetch a weather page". And it duplicates something the isolation boundary in `add-microvm-isolation` already provides: that boundary enforces exactly this policy, per host, deny-by-default, with no code of ours involved. Writing a second allowlist inside the first would mean two places to keep correct.
+
+So this change stays coarse on purpose and leaves host-level filtering to the boundary above it.
 
 **A dedicated network, not Docker's default bridge.** `--network bridge` would work but puts the sandbox on a network shared with every container on the host that did not pick a network, which in a developer's environment is unpredictable. A named network used only by sandboxes makes the blast radius explicit and keeps `bot-net` — and therefore the LLM provider and the bot — out of reach. Sandbox containers are still spawned one per act step and removed afterwards; only the network persists.
 
@@ -33,7 +35,11 @@ The deployment topology matters for what "opening the network" costs: `docker-co
 
 ## Risks / Trade-offs
 
-**In egress mode the sandbox can reach the host through the Docker gateway address** → Not mitigated. A container on a bridge network can address the host, so a sandboxed command could reach services bound on the host — including a locally-run Ollama on `11434` in the non-Docker development setup. This is the main reason the mode is opt-in and off by default. Blocking it requires firewall rules on the bridge, which is where the proxy design starts to pay for itself; documented here so the choice to enable egress is made with open eyes.
+**In egress mode the sandbox can reach the host through the Docker gateway address** → Not mitigated within this change, and the reason it stays opt-in and off by default. A container on a bridge network can address the host, so a sandboxed command could reach services bound there — including a locally-run Ollama on `11434`.
+
+Where it *is* mitigated is by running the whole agent inside the isolation boundary from `add-microvm-isolation`. There, the "host" the sandbox can address is the boundary, not the operator's machine, and the boundary's own egress is default-deny with per-host grants — so a sandbox in egress mode still cannot reach anything that was not explicitly allowed one level up. That measurement is recorded in that change's design; a loopback-bound service on the real host was confirmed unreachable from the LAN and from the VM bridge while remaining reachable to the boundary through its policy proxy.
+
+The practical guidance follows from this: enable egress mode when running inside the isolation boundary, where its blast radius is bounded by the boundary's allow list. Enabling it on a bare host means accepting that a sandboxed command can reach host services, and should be a deliberate choice for a development machine, not a default posture.
 
 **In egress mode the sandbox can exfiltrate whatever it can read** → Accepted, and bounded by the sandbox's own filesystem: the root filesystem is read-only and the writable workdir starts empty each act step, so there is little to exfiltrate beyond what the tool call itself produced.
 
