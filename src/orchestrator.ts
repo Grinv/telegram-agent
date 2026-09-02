@@ -26,6 +26,8 @@ export interface LoopDeps {
   statsRecorder?: StatsRecorder;
   maxIterations: number;
   model?: string;
+  /** Who is running this loop: "main" (default), "classifier", or "subagent". Passed through to stats. */
+  role?: 'main' | 'classifier' | 'subagent';
 }
 
 export type LoopResult = { ok: true; text: string; iterations: number } | { ok: false; reason: string; iterations: number };
@@ -45,7 +47,7 @@ export async function runLoop(
   tools: ToolDefinition[],
   deps: LoopDeps,
 ): Promise<LoopResult> {
-  const { callLlm, provider, timeoutMs, sandboxExecutor, toolRegistry, statsRecorder, maxIterations, model } = deps;
+  const { callLlm, provider, timeoutMs, sandboxExecutor, toolRegistry, statsRecorder, maxIterations, model, role } = deps;
 
   for (let i = 0; i < maxIterations; i++) {
     const request: LlmRequest = {
@@ -61,6 +63,7 @@ export async function runLoop(
 
     statsRecorder?.recordLlmCall({
       iteration: i,
+      ...(role ? { role } : {}),
       ...(model ? { model } : {}),
       ok: result.ok,
       ...(result.ok ? { text: result.text, ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}) } : {}),

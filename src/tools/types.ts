@@ -1,4 +1,9 @@
-import type { ToolDefinition, ToolResult } from '../llm/types.js';
+import type { CallLlm, ToolDefinition, ToolResult } from '../llm/types.js';
+import type { SandboxExecutor } from '../sandbox/sandbox-executor.js';
+import type { ToolRegistry } from './registry.js';
+import type { runLoop } from '../orchestrator.js';
+import type { Router } from '../routing/types.js';
+import type { StatsRecorder } from '../stats/types.js';
 
 /**
  * Result of running a command inside the sandbox container. Returned by
@@ -18,9 +23,25 @@ export interface ContainerExecResult {
  *
  * `execInContainer` accepts an optional `stdin` string for tools (like
  * `write_file`) that pipe content into the command via stdin.
+ *
+ * The remaining fields are only used by tools that start nested loops (e.g.
+ * `spawn_subagent`); every other tool ignores them. `provider`/`timeoutMs`
+ * are included alongside `callLlm` because `runLoop`'s deps require them to
+ * build each inference call's options, mirroring `OrchestratorDeps` in
+ * `src/orchestrator.ts`.
  */
 export interface ToolContext {
   execInContainer: (command: string, stdin?: string) => Promise<ContainerExecResult>;
+  callLlm?: CallLlm;
+  provider?: string;
+  timeoutMs?: number;
+  sandboxExecutor?: SandboxExecutor;
+  toolRegistry?: ToolRegistry;
+  runLoop?: typeof runLoop;
+  router?: Router;
+  statsRecorder?: StatsRecorder;
+  maxSubIterations?: number;
+  maxSubagents?: number;
 }
 
 /**

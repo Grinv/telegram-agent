@@ -39,4 +39,16 @@ export class ToolRegistry {
   isEmpty(): boolean {
     return this.tools.size === 0;
   }
+
+  /** Returns a new registry with the named tools excluded (shallow copy; tools are not cloned). */
+  without(names: string[]): ToolRegistry {
+    const excluded = new Set(names);
+    const copy = new ToolRegistry();
+    for (const [name, tool] of this.tools) {
+      if (!excluded.has(name)) {
+        copy.tools.set(name, tool);
+      }
+    }
+    return copy;
+  }
 }

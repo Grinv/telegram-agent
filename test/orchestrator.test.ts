@@ -429,6 +429,36 @@ test('runLoop is callable directly and returns success for a one-shot answer', a
   assert.deepEqual(result, { ok: true, text: 'direct', iterations: 1 });
 });
 
+test('runLoop passes role: "subagent" through to statsRecorder.recordLlmCall', async () => {
+  const { fn: callLlm } = scriptedCallLlm([{ ok: true, text: 'sub answer' }]);
+  const executor = fakeSandboxExecutor([]);
+  const { registry } = registryWithTools();
+  const llmCallStats: Array<{ role?: string }> = [];
+  const statsRecorder: StatsRecorder = {
+    recordMessage: () => {},
+    recordLlmCall: (stats) => llmCallStats.push(stats),
+    recordToolCall: () => {},
+  };
+
+  await runLoop(
+    [{ role: 'user', content: 'sub task' }],
+    registry.getDefinitions(),
+    {
+      callLlm,
+      provider: 'stub',
+      timeoutMs: 1000,
+      sandboxExecutor: executor,
+      toolRegistry: registry,
+      maxIterations: 3,
+      statsRecorder,
+      role: 'subagent',
+    },
+  );
+
+  assert.equal(llmCallStats.length, 1);
+  assert.equal(llmCallStats[0].role, 'subagent');
+});
+
 // ---------------------------------------------------------------------------
 // fix-unknown-tool-call-handling — unregistered tool name does not abort the loop
 // ---------------------------------------------------------------------------

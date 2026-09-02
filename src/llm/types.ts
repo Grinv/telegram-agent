@@ -76,3 +76,6 @@ export interface LlmFailure {
 }
 
 export type LlmResult = LlmSuccess | LlmFailure;
+
+/** Shape of the isolated inference call the orchestrator (and nested loops) invoke. */
+export type CallLlm = (request: LlmRequest, options: { provider: string; timeoutMs: number }) => Promise<LlmResult>;

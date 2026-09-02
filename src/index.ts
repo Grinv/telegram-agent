@@ -3,8 +3,9 @@ import { logger } from './logger.js';
 import { registerGlobalErrorHandlers } from './error-handlers.js';
 import { TelegramClient } from './telegram/client.js';
 import { startPolling } from './telegram/poller.js';
-import { createMessageHandler } from './orchestrator.js';
-import { createDefaultToolRegistry } from './tools/index.js';
+import { createMessageHandler, runLoop } from './orchestrator.js';
+import { createSubagentToolRegistry } from './tools/index.js';
+import type { ToolContext } from './tools/index.js';
 import { DockerSandboxExecutor } from './sandbox/sandbox-executor.js';
 import { createStatsRecorder } from './stats/index.js';
 import { discoverModels } from './routing/model-discovery.js';
@@ -16,13 +17,6 @@ registerGlobalErrorHandlers();
 try {
   const config = loadConfig();
   const client = new TelegramClient(config.telegramBotToken);
-  const toolRegistry = createDefaultToolRegistry();
-  const sandboxExecutor = new DockerSandboxExecutor({
-    image: config.sandboxImage,
-    timeoutMs: config.sandboxTimeoutMs,
-    memoryLimit: config.sandboxMemoryLimit,
-    cpuLimit: config.sandboxCpuLimit,
-  });
 
   const statsRecorder = config.statsEnabled
     ? createStatsRecorder(config.statsDbPath, config.statsStorePrompts)
@@ -37,6 +31,39 @@ try {
       ...(config.routerFallbackModel ? { fallbackModel: config.routerFallbackModel } : {}),
       classifierTimeoutMs: config.classifierTimeoutMs,
     }) ?? undefined;
+
+  // Context merged into every tool call by the sandbox executor (see below),
+  // so tools that start nested loops (spawn_subagent/spawn_subagents) have
+  // what they need. `sandboxExecutor` is filled in below once constructed,
+  // since it needs to reference itself; `extraContext` is stored by
+  // reference, so that late assignment is picked up on every tool call.
+  const extraContext: Partial<ToolContext> = {
+    callLlm: (request, options) => callLlmIsolated(request, { provider: config.llmProvider, timeoutMs: options.timeoutMs }),
+    provider: config.llmProvider,
+    timeoutMs: config.llmTimeoutMs,
+    runLoop,
+    ...(statsRecorder ? { statsRecorder } : {}),
+    ...(router ? { router } : {}),
+    maxSubagents: config.maxSubagents,
+    maxSubIterations: config.maxSubIterations,
+  };
+
+  const toolRegistry = createSubagentToolRegistry({ execInContainer: async () => {
+    throw new Error('execInContainer is only available inside a sandbox call');
+  }, ...extraContext });
+  extraContext.toolRegistry = toolRegistry;
+
+  const sandboxExecutor = new DockerSandboxExecutor(
+    {
+      image: config.sandboxImage,
+      timeoutMs: config.sandboxTimeoutMs,
+      memoryLimit: config.sandboxMemoryLimit,
+      cpuLimit: config.sandboxCpuLimit,
+    },
+    undefined,
+    extraContext,
+  );
+  extraContext.sandboxExecutor = sandboxExecutor;
 
   const handleMessage = createMessageHandler({
     client,

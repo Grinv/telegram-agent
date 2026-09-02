@@ -16,6 +16,8 @@ import {
   resolveClassifierModel,
   resolveClassifierTimeoutMs,
   resolveRouterFallbackModel,
+  resolveMaxSubagents,
+  resolveMaxSubIterations,
   ConfigError,
 } from '../src/config.js';
 
@@ -201,4 +203,36 @@ test('resolveRouterFallbackModel defaults to empty string (auto-select) when uns
 
 test('resolveRouterFallbackModel returns the provided value', () => {
   assert.equal(resolveRouterFallbackModel('mistral-nemo'), 'mistral-nemo');
+});
+
+// --- Subagent config resolvers ---
+
+test('resolveMaxSubagents defaults to 3', () => {
+  assert.equal(resolveMaxSubagents(undefined), 3);
+});
+
+test('resolveMaxSubagents returns the provided value', () => {
+  assert.equal(resolveMaxSubagents('5'), 5);
+});
+
+test('resolveMaxSubagents throws ConfigError for non-positive or non-integer values', () => {
+  assert.throws(() => resolveMaxSubagents('0'), ConfigError);
+  assert.throws(() => resolveMaxSubagents('-1'), ConfigError);
+  assert.throws(() => resolveMaxSubagents('abc'), ConfigError);
+  assert.throws(() => resolveMaxSubagents('2.5'), ConfigError);
+});
+
+test('resolveMaxSubIterations defaults to 3', () => {
+  assert.equal(resolveMaxSubIterations(undefined), 3);
+});
+
+test('resolveMaxSubIterations returns the provided value', () => {
+  assert.equal(resolveMaxSubIterations('2'), 2);
+});
+
+test('resolveMaxSubIterations throws ConfigError for non-positive or non-integer values', () => {
+  assert.throws(() => resolveMaxSubIterations('0'), ConfigError);
+  assert.throws(() => resolveMaxSubIterations('-1'), ConfigError);
+  assert.throws(() => resolveMaxSubIterations('abc'), ConfigError);
+  assert.throws(() => resolveMaxSubIterations('1.5'), ConfigError);
 });

@@ -1,0 +1,34 @@
+## Why
+
+After changes 1–3, the bot can run a think → act → observe loop, record stats, and route messages to the right model. But when a task has independent sub-parts (e.g. "analyze all 3 CSV files and summarize"), the LLM can only process them sequentially — one loop, one sandbox, one sub-task at a time. Parallel subagents let the LLM spawn N independent loops that run concurrently (each with its own sandbox), collecting results in a fraction of the time. Because `runLoop` was extracted as a standalone function (change 1) and `ToolContext` is extensible (change 1), subagents are implementable mostly as tools — the orchestrator's message-handling logic (`createMessageHandler`) does not change, though `runLoop` itself needed one small additional optional dep (see What Changes) purely for stats attribution.
+
+## What Changes
+
+- Extend `ToolContext` (from change 1) with optional fields: `callLlm`, `provider`, `timeoutMs`, `sandboxExecutor`, `toolRegistry`, `runLoop`, `router?`, `statsRecorder?`, `maxSubIterations?`, `maxSubagents?`. Existing tools (change 1: `execute_command`, `read_file`, `write_file`, `list_files`) use only `execInContainer` and are unaffected by the new fields. `provider`/`timeoutMs` are required alongside `callLlm` because `runLoop`'s deps need them to build each inference call's options.
+- Add a `spawn_subagent` tool that takes a task description and an optional model, starts a nested `runLoop` with a fresh sandbox, and returns the sub-agent's final answer. The sub-agent inherits the tool registry (or a subset), so it can use tools too.
+- Add a `spawn_subagents` tool that takes an array of task descriptions and an optional model, starts N `runLoop` calls in parallel via `Promise.all` (each with its own fresh sandbox), and returns all results.
+- Each sub-agent LLM call is recorded in stats with `role="subagent"` (the stats hook points and `role` field already exist from changes 1 and 2). Sub-agent tool calls are recorded under the parent message, linked via `message_id`.
+- `spawn_subagent` and `spawn_subagents` are registered as tools in the `ToolRegistry`, and the LLM calls them like any other tool — `createMessageHandler` (the orchestrator's message-handling logic) is **not modified**. `runLoop` itself gains one new optional dep, `role?: 'main' | 'classifier' | 'subagent'` (forwarded to `statsRecorder?.recordLlmCall()`, default behavior unchanged when omitted), so `spawn_subagent` can attribute its nested loop's LLM calls to `role="subagent"` in stats. The `runLoop` function is called recursively inside the tool handler.
+- `DockerSandboxExecutor`'s constructor gains an optional third parameter, `extraContext: Partial<ToolContext>` (default `{}`, non-breaking), merged into the `ToolContext` built for every tool call. Without this, none of `ToolContext`'s new optional fields would ever reach a tool at runtime — `DockerSandboxExecutor.execute()` previously only ever set `execInContainer` on the per-call context, regardless of what was on the registry-facing `ToolContext` type. This is what actually makes `spawn_subagent`/`spawn_subagents` functional rather than just registered-but-always-erroring.
+
+## Capabilities
+
+### New Capabilities
+- `subagents`: Parallel sub-agent execution via `spawn_subagent`/`spawn_subagents` tools — each sub-agent runs an independent think → act → observe loop with its own sandbox, enabling concurrent task decomposition and faster parallel processing.
+
+### Modified Capabilities
+- `sandbox-execution`: `ToolContext` is extended with `callLlm`, `provider`, `timeoutMs`, `sandboxExecutor`, `toolRegistry`, `runLoop`, `router?`, `statsRecorder?`, `maxSubIterations?`, `maxSubagents?` so the `spawn_subagent` tool can start nested loops. Existing tools are unaffected (they ignore the new fields). `DockerSandboxExecutor` also gains the constructor-time `extraContext` mechanism that actually populates these fields on the per-call context.
+
+## Impact
+
+- Modified: `src/tools/types.ts` — `ToolContext` extended with optional `callLlm?`, `provider?`, `timeoutMs?`, `sandboxExecutor?`, `toolRegistry?`, `runLoop?`, `router?`, `statsRecorder?`, `maxSubIterations?`, `maxSubagents?`.
+- New: `src/tools/spawn-subagent.ts` — `spawn_subagent` tool implementation. Uses `context.runLoop` and `context.sandboxExecutor` to run a nested loop.
+- New: `src/tools/spawn-subagents.ts` — `spawn_subagents` tool implementation. Uses `Promise.all` over `spawn_subagent` calls.
+- Modified: `src/tools/index.ts` — adds `createSubagentToolRegistry(context)`, which registers the four default tools plus `spawn_subagent`/`spawn_subagents` only when `context.runLoop` and `context.callLlm` are present (`createDefaultToolRegistry()` itself is unchanged and still registers only the four default tools).
+- Modified: `src/sandbox/sandbox-executor.ts` — `DockerSandboxExecutor`'s constructor gains an optional `extraContext: Partial<ToolContext>` parameter, merged into the `ToolContext` built for every `execute()` call. This is the mechanism that actually gets `callLlm`/`runLoop`/etc. to a tool at runtime; without it the new `ToolContext` fields would be advertised on the type but never populated. `SandboxExecutor.execute()`'s signature is unchanged.
+- Modified: `src/orchestrator.ts` — `LoopDeps` gains an optional `role?: 'main' | 'classifier' | 'subagent'` field, forwarded by `runLoop` to `statsRecorder?.recordLlmCall()`. Default behavior is unchanged when `role` is omitted (the stats recorder's existing `stats.role ?? 'main'` fallback still applies). `createMessageHandler` and every existing call site are otherwise untouched.
+- Modified: `src/stats/types.ts` — `LlmCallStats.role` widened from `'main' | 'classifier'` to `'main' | 'classifier' | 'subagent'`.
+- `src/index.ts`: builds one `extraContext` object (`callLlm`, `provider`, `timeoutMs`, `runLoop`, `statsRecorder?`, `router?`, `maxSubagents`, `maxSubIterations`), mutates it in place to add `toolRegistry` and then `sandboxExecutor` once each is constructed (resolving `sandboxExecutor`'s self-reference — it needs to be in its own `extraContext`), and passes it to `createSubagentToolRegistry` and `new DockerSandboxExecutor(config, undefined, extraContext)`.
+- Stats: sub-agent LLM calls recorded with `role="subagent"` (change 2's schema already has the `role` column; no schema change needed).
+- `.env.example` / `README.md`: document `MAX_SUBAGENTS` (default 3) and `MAX_SUB_ITERATIONS` (default 3) env vars.
+- Tests: new `test/tools/spawn-subagent.test.ts`, `spawn-subagents.test.ts` (fakes for `runLoop`/`callLlm`), plus coverage added to `test/tools/registry.test.ts` (`without()`), `test/tools/index.test.ts` (`createSubagentToolRegistry`), `test/orchestrator.test.ts` (`role` passthrough), and `test/config.test.ts` (`resolveMaxSubagents`/`resolveMaxSubIterations`).

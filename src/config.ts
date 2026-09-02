@@ -16,6 +16,8 @@ export interface AppConfig {
   classifierModel: string;
   classifierTimeoutMs: number;
   routerFallbackModel: string;
+  maxSubagents: number;
+  maxSubIterations: number;
 }
 
 export class ConfigError extends Error {}
@@ -135,6 +137,28 @@ export function resolveRouterFallbackModel(raw: string | undefined): string {
   return raw ?? '';
 }
 
+/** Pure: resolves MAX_SUBAGENTS (must be a positive integer; caps concurrent spawn_subagents batches). */
+export function resolveMaxSubagents(raw: string | undefined): number {
+  const value = Number(raw ?? 3);
+  if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
+    throw new ConfigError(
+      `MAX_SUBAGENTS must be a positive integer (got "${raw ?? '3'}")`
+    );
+  }
+  return value;
+}
+
+/** Pure: resolves MAX_SUB_ITERATIONS (must be a positive integer; caps a sub-agent's own loop). */
+export function resolveMaxSubIterations(raw: string | undefined): number {
+  const value = Number(raw ?? 3);
+  if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
+    throw new ConfigError(
+      `MAX_SUB_ITERATIONS must be a positive integer (got "${raw ?? '3'}")`
+    );
+  }
+  return value;
+}
+
 export function loadConfig(): AppConfig {
   try {
     process.loadEnvFile();
@@ -158,5 +182,7 @@ export function loadConfig(): AppConfig {
     classifierModel: resolveClassifierModel(process.env.CLASSIFIER_MODEL),
     classifierTimeoutMs: resolveClassifierTimeoutMs(process.env.CLASSIFIER_TIMEOUT_MS),
     routerFallbackModel: resolveRouterFallbackModel(process.env.ROUTER_FALLBACK_MODEL),
+    maxSubagents: resolveMaxSubagents(process.env.MAX_SUBAGENTS),
+    maxSubIterations: resolveMaxSubIterations(process.env.MAX_SUB_ITERATIONS),
   };
 }

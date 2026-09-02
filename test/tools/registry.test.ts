@@ -39,6 +39,33 @@ test('isEmpty is true for a fresh registry and false once a tool is registered',
   assert.equal(registry.isEmpty(), false);
 });
 
+test('without() excludes the named tools from the returned registry', () => {
+  const registry = new ToolRegistry();
+  registry.register(fakeTool('a'));
+  registry.register(fakeTool('b'));
+  registry.register(fakeTool('c'));
+  registry.register(fakeTool('d'));
+
+  const filtered = registry.without(['a', 'b']);
+
+  assert.equal(filtered.getDefinitions().length, 2);
+  assert.throws(() => filtered.getTool('a'), ToolNotFoundError);
+  assert.throws(() => filtered.getTool('b'), ToolNotFoundError);
+  assert.equal(filtered.getTool('c'), registry.getTool('c'));
+  assert.equal(filtered.getTool('d'), registry.getTool('d'));
+  // Original registry is unaffected.
+  assert.equal(registry.getDefinitions().length, 4);
+});
+
+test('without() reports isEmpty correctly when tools remain or all are excluded', () => {
+  const registry = new ToolRegistry();
+  registry.register(fakeTool('a'));
+  registry.register(fakeTool('b'));
+
+  assert.equal(registry.without(['a']).isEmpty(), false);
+  assert.equal(registry.without(['a', 'b']).isEmpty(), true);
+});
+
 test('getDefinitions returns the JSON-Schema shape the LLM expects', () => {
   const registry = new ToolRegistry();
   registry.register(fakeTool('a_tool'));

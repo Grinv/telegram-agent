@@ -27,14 +27,23 @@ export interface SandboxExecutor {
 export class DockerSandboxExecutor implements SandboxExecutor {
   private readonly dockerExec: DockerExecFn;
   private readonly config: SandboxExecutorConfig;
+  private readonly extraContext: Partial<ToolContext>;
   private readonly timers = new Map<string, NodeJS.Timeout>();
 
+  /**
+   * `extraContext` is merged into every per-call `ToolContext` alongside
+   * `execInContainer`, so tools that need to start nested loops (e.g.
+   * `spawn_subagent`) get `callLlm`/`runLoop`/`toolRegistry`/etc. Tools that
+   * only use `execInContainer` are unaffected by its presence.
+   */
   constructor(
     config: SandboxExecutorConfig,
     dockerExec: DockerExecFn = createDockerExec(),
+    extraContext: Partial<ToolContext> = {},
   ) {
     this.config = config;
     this.dockerExec = dockerExec;
+    this.extraContext = extraContext;
   }
 
   async createSandbox(): Promise<string> {
@@ -83,6 +92,7 @@ export class DockerSandboxExecutor implements SandboxExecutor {
     const containerId = await this.createSandbox();
     try {
       const context: ToolContext = {
+        ...this.extraContext,
         execInContainer: (command: string, stdin?: string) =>
           this.execInContainer(containerId, command, stdin),
       };
