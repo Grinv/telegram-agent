@@ -397,9 +397,17 @@ docker run --rm --entrypoint cat telegram-agent-sandbox:latest /etc/alpine-relea
 In `.env`, set `OLLAMA_MODEL` to a **tool-calling-capable** model — this is
 the single most common way to get stuck. `llama3` (an old default some
 setups still reference) does **not** support tool calling; the model just
-answers in prose and never triggers `execute_command`. Known-good small
-models: `qwen2.5`, `qwen3.5:0.8b`, `llama3.1`, `mistral-nemo`. Check any
-model's capabilities before relying on it:
+answers in prose and never triggers `execute_command`. Known-good models:
+`qwen3:4b`, `qwen2.5`, `llama3.1`, `mistral-nemo`.
+
+Size matters more than the capability flag suggests. Measured on this
+project: `qwen3:4b` emits a well-formed call, while `qwen3:1.7b` and smaller
+report tool support and then return no call at all — Ollama answers with
+`tool_calls: null` and the bot replies in prose. So a model can pass the
+check below and still never reach the act step. Treat roughly 4B parameters
+as the practical floor, and verify with a real message rather than the flag
+alone. Check capabilities too, since a model without them fails harder —
+Ollama rejects the request outright with `HTTP 400`:
 
 ```bash
 docker compose exec ollama ollama show <model> | grep -A3 Capabilities
@@ -446,6 +454,22 @@ separate "rebuild" command.
 Ollama's pulled models live in a **named volume** (`ollama-data`), so
 `docker:down` → `docker:up` does *not* require re-pulling the model. Only
 `docker compose down -v` (not what `docker:down` runs) would wipe it.
+
+Every rebuild leaves the previous image behind without a name, because a tag
+points at one image at a time: `docker:up` moves `telegram-agent-bot:latest`
+onto the new build and the old one becomes `<none>`. Docker keeps it rather
+than assuming nothing references it. They are not junk from a failed build —
+they are your earlier builds, ~195 MB each — and they accumulate quietly:
+
+```bash
+docker images -f dangling=true    # see them
+npm run docker:clean              # remove them, plus stale build cache
+```
+
+Nothing worth keeping is lost: the code in them is the code you replaced. If
+you ever want an earlier build to stay reachable, tag it at build time
+(`docker build -t telegram-agent-bot:$(git rev-parse --short HEAD) .`)
+rather than trying to name it afterwards.
 
 ## Local (non-Docker) alternative
 

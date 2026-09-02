@@ -16,6 +16,7 @@
     "docker:up": "node scripts/check-sandbox-image.mjs && docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
+    "docker:clean": "docker image prune -f && docker builder prune -f",
     "isolated:provision": "node scripts/isolation.mjs provision",
     "isolated:broker": "node scripts/telegram-broker.mjs",
     "isolated:start": "node scripts/isolation.mjs start",
