@@ -38,3 +38,12 @@ Implemented SQLite-backed stats recording and Markdown reporting; archived and s
 - glm-5.2: 80 requests, 15m 11s, in 200 651 / out 34 331 (reasoning 20 620) / cache write 0 / cache read 5 453 376
 - Total: 77 551 262 tokens
 - Start: from change file creation time
+
+## 2026-09-02 — fix-stats-unhandled-exception-gap
+
+Closed the gap where handleMessage's catch block never called statsRecorder.recordMessage on an unexpected error, leaving the DB row stuck at insert values.
+
+- Time: 16m 37s total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 18:22 → 2026-09-02 18:39
+- claude-sonnet-5: 81 requests, duration n/a, in 162 / out 41 542 (reasoning 15 072) / cache write 160 261 / cache read 12 709 854
+- Total: 12 911 819 tokens
+- Start: from change file creation time

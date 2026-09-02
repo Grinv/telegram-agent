@@ -362,6 +362,32 @@ test('statsRecorder hooks are called at the right points when provided', async (
   assert.equal(toolCalls.length, 1, 'recordToolCall called once for the tool execution');
 });
 
+test('statsRecorder receives the reply-sent hook, marked failed, when an unexpected error occurs', async () => {
+  const messages: unknown[] = [];
+  const statsRecorder: StatsRecorder = {
+    recordMessage: (stats) => messages.push(stats),
+    recordLlmCall: () => {},
+    recordToolCall: () => {},
+  };
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({
+      callLlm: async () => {
+        throw new Error('boom');
+      },
+      statsRecorder,
+    }),
+    client,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  assert.equal(messages.length, 2, 'recordMessage called on receive and on reply');
+  const replyStats = messages[1] as { ok: boolean; reason?: string };
+  assert.equal(replyStats.ok, false);
+  assert.equal(replyStats.reason, 'UNEXPECTED_ERROR');
+});
+
 test('loop works normally (no errors) when statsRecorder is undefined', async () => {
   const { fn: callLlm } = scriptedCallLlm([{ ok: true, text: 'no stats needed' }]);
   const executor = fakeSandboxExecutor([]);

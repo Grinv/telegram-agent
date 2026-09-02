@@ -191,6 +191,13 @@ export function createMessageHandler(deps: OrchestratorDeps) {
         error: error instanceof Error ? error.message : String(error),
       });
 
+      deps.statsRecorder?.recordMessage({
+        chatId,
+        replySentAt: Date.now(),
+        ok: false,
+        reason: 'UNEXPECTED_ERROR',
+      });
+
       try {
         await deps.client.sendMessage(chatId, FAILURE_REPLY_TEXT);
       } catch (sendError) {
