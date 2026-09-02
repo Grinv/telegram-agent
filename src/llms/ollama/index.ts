@@ -62,6 +62,9 @@ export class OllamaConnector extends BaseConnector {
       if (request.tools && request.tools.length > 0) {
         body.tools = request.tools;
       }
+      if (request.think !== undefined) {
+        body.think = request.think;
+      }
 
       const response = await this.fetchImpl(`${this.baseUrl}/api/chat`, {
         method: 'POST',

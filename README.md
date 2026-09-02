@@ -35,6 +35,9 @@ The LLM can request tools (run a shell command, read/write/list files) to answer
    | `STATS_ENABLED` | no | `true` | Records per-message/LLM-call/tool-call stats to a local SQLite database. Set to `false` to disable. |
    | `STATS_DB_PATH` | no | `data/stats.db` | Path to the stats SQLite database (gitignored — local only). |
    | `STATS_STORE_PROMPTS` | no | `true` | Whether prompt/reply text is stored alongside stats. Set to `false` for privacy-sensitive deployments. |
+   | `CLASSIFIER_MODEL` | no | `qwen3:1.7b` | Model used to classify each message for routing. Must be pulled in Ollama. A small, text-only Qwen3 model works well here; leave empty to instead auto-select the smallest model discovered from Ollama. See [Model Routing](#model-routing). |
+   | `CLASSIFIER_TIMEOUT_MS` | no | `5000` | Max time to wait for the classifier before falling back to `ROUTER_FALLBACK_MODEL`. |
+   | `ROUTER_FALLBACK_MODEL` | no | empty (auto) | Model used when the classifier times out, errors, or returns an unrecognized name. Empty auto-selects the largest tool-capable model discovered (or the largest overall). |
 
    The default connector is `ollama`, so **Ollama must be reachable** (locally via `ollama serve`, or as the `ollama` container — see below) with the configured model already pulled (`ollama pull qwen2.5`, or whatever `OLLAMA_MODEL` you set), or every message will fail with a provider-error reply. Set `LLM_PROVIDER=stub` instead if you just want a placeholder reply with no LLM running.
 
@@ -92,6 +95,7 @@ Uses Node's built-in test runner (`node:test`) and `node:assert`, so there's no 
 - `src/orchestrator.ts`: runs a think → act → observe loop per message. `runLoop()` sends the conversation + available tool definitions to the LLM; if the LLM requests tool calls, they're executed in a fresh sandbox and the results are fed back, repeating until a final text answer or `TOOL_USE_MAX_ITERATIONS` is reached. `createMessageHandler()` wires this to a Telegram message and reply; when no tools are registered, the loop exits after the first LLM call — the same one-shot behavior as before tool-use existed. No state is kept between messages.
 - `src/logger.ts` / `src/error-handlers.ts`: colorized console logging and top-level exception/rejection capture.
 - `src/stats/`: `SqliteStatsRecorder` implements the orchestrator's `StatsRecorder` hook using `node:sqlite`, writing to `data/stats.db` (gitignored). `reporter.ts`'s `StatsReporter` queries that database and renders a Markdown report; `reporter-cli.ts` is the `npm run stats:report` entrypoint. See [Statistics](#statistics).
+- `src/routing/`: dynamic model discovery and classifier-based routing. See [Model Routing](#model-routing).
 
 Each inference call runs in its own child process (see `inference-caller.ts`), so a connector that hangs, crashes, or throws can never block or take down the bot process. The parent kills the child on timeout and reports a typed failure instead. Tool execution has an analogous isolation boundary one level down: each act step runs in its own disposable Docker container, so a tool call can never touch the bot's own filesystem, network, or process.
 
@@ -104,11 +108,29 @@ The orchestrator logs the text of each incoming message and, on success, the LLM
 
 This log output is console-only. Structured stats (token usage, latency, tool calls) are persisted separately — see [Statistics](#statistics) below. Be mindful of what's visible in your terminal if a chat contains sensitive text.
 
+## Model Routing
+
+Each incoming message can be routed to a different Ollama model depending on how simple or complex it is — e.g. a small model for "hi", a larger tool-capable model for "write a script and run it".
+
+**Discovery.** At startup, the bot queries Ollama's `/api/tags` (list of pulled models) and `/api/show` (per-model capabilities, including tool-call support, and parameter size) at `OLLAMA_BASE_URL`. This happens once, not per message — pull new models with `ollama pull` and restart the bot to pick them up. If Ollama is unreachable at startup, this is logged as a warning and routing is skipped (the connector's default `OLLAMA_MODEL` is used for every message), not a startup failure.
+
+**Auto-selection.** From the discovered models, the bot picks:
+- **Classifier model** — `CLASSIFIER_MODEL` (default `qwen3:1.7b`, a small text-only model). Leave the variable empty to instead auto-select the smallest discovered model by parameter size.
+- **Fallback model** — the largest model that supports tool calling, or the largest overall if none do (`ROUTER_FALLBACK_MODEL` to override).
+
+Routing is skipped entirely when fewer than two models are discovered — with only one model available, there's nothing to route between.
+
+**Per-message classification.** Before the think → act → observe loop runs, the classifier model is asked to pick which available model should handle the message (given the message text and each candidate's name, parameter size, and tool support). The chosen model is then used for the actual reply. The classifier call always disables "thinking" mode (`think: false`) — its response is parsed as a bare model name, and a thinking model's reasoning trace would break that match.
+
+**Fallback.** If the classifier call times out (`CLASSIFIER_TIMEOUT_MS`, default 5000ms — shorter than `LLM_TIMEOUT_MS` so a slow classification doesn't delay the reply beyond that), errors, or returns a name that isn't in the discovered model list, the fallback model is used instead. This is expected to happen occasionally and never blocks a reply.
+
+**Observability.** Every routing decision is logged (`Routing decision`, with the chosen model, `source` — `"classifier"` or `"fallback"` — and `reason` on fallback) and, when stats are enabled, the classifier call itself is recorded in `llm_calls` with `role="classifier"` (see [Statistics](#statistics)) — so you can see how often the classifier is used vs. falling back, and how many tokens classification costs relative to the main loop.
+
 ## Statistics
 
 When `STATS_ENABLED` is `true` (the default), every processed message, LLM call, and tool call is recorded to a local SQLite database (`STATS_DB_PATH`, default `data/stats.db`) via `src/stats/`. This is zero-dependency — it uses Node's built-in `node:sqlite`. The `data/` directory is gitignored: this data is local-only and never committed, since it can include prompt/reply text (see `STATS_STORE_PROMPTS` to disable that).
 
-Recorded per message: timestamp, chat ID, latency, iteration count, tool-call count, success/failure (with reason). Per LLM call: model, prompt/completion tokens (from the provider's real usage counts when available), latency, role (`main` for now), success/failure. Per tool call: tool name, arguments, latency, success/failure, result length.
+Recorded per message: timestamp, chat ID, latency, iteration count, tool-call count, success/failure (with reason). Per LLM call: model, prompt/completion tokens (from the provider's real usage counts when available), latency, role (`main` for the think → act → observe loop, `classifier` for a routing decision — see [Model Routing](#model-routing)), success/failure. Per tool call: tool name, arguments, latency, success/failure, result length.
 
 Generate a Markdown report from the recorded data:
 

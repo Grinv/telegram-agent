@@ -134,7 +134,7 @@ export class SqliteStatsRecorder implements StatsRecorder {
     const result = this.insertLlmCallStmt.run(
       this.currentPending.id,
       stats.iteration,
-      'main',
+      stats.role ?? 'main',
       stats.model ?? 'unknown',
       stats.usage?.promptTokens ?? 0,
       stats.usage?.completionTokens ?? 0,

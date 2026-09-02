@@ -20,6 +20,8 @@ export interface MessageStats {
 /** Stats emitted after each LLM call inside the think → act → observe loop. */
 export interface LlmCallStats {
   iteration: number;
+  /** Who made this call: "main" (the loop's think step, the default) or "classifier" (model routing). */
+  role?: 'main' | 'classifier';
   model?: string;
   ok: boolean;
   text?: string;

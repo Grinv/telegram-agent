@@ -13,6 +13,9 @@ import {
   resolveStatsDbPath,
   resolveStatsStorePrompts,
   resolveStatsEnabled,
+  resolveClassifierModel,
+  resolveClassifierTimeoutMs,
+  resolveRouterFallbackModel,
   ConfigError,
 } from '../src/config.js';
 
@@ -165,4 +168,37 @@ test('resolveStatsEnabled parses "true" and "false" case-insensitively', () => {
 
 test('resolveStatsEnabled throws ConfigError for an invalid value', () => {
   assert.throws(() => resolveStatsEnabled('nope'), ConfigError);
+});
+
+// --- Model routing config resolvers ---
+
+test('resolveClassifierModel defaults to empty string (auto-select) when unset', () => {
+  assert.equal(resolveClassifierModel(undefined), '');
+});
+
+test('resolveClassifierModel returns the provided value', () => {
+  assert.equal(resolveClassifierModel('llama3.1:8b'), 'llama3.1:8b');
+});
+
+test('resolveClassifierTimeoutMs defaults to 5000', () => {
+  assert.equal(resolveClassifierTimeoutMs(undefined), 5000);
+});
+
+test('resolveClassifierTimeoutMs returns the provided value', () => {
+  assert.equal(resolveClassifierTimeoutMs('2000'), 2000);
+});
+
+test('resolveClassifierTimeoutMs throws ConfigError for non-positive or non-integer values', () => {
+  assert.throws(() => resolveClassifierTimeoutMs('0'), ConfigError);
+  assert.throws(() => resolveClassifierTimeoutMs('-1'), ConfigError);
+  assert.throws(() => resolveClassifierTimeoutMs('abc'), ConfigError);
+  assert.throws(() => resolveClassifierTimeoutMs('1.5'), ConfigError);
+});
+
+test('resolveRouterFallbackModel defaults to empty string (auto-select) when unset', () => {
+  assert.equal(resolveRouterFallbackModel(undefined), '');
+});
+
+test('resolveRouterFallbackModel returns the provided value', () => {
+  assert.equal(resolveRouterFallbackModel('mistral-nemo'), 'mistral-nemo');
 });

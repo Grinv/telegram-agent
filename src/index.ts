@@ -7,6 +7,9 @@ import { createMessageHandler } from './orchestrator.js';
 import { createDefaultToolRegistry } from './tools/index.js';
 import { DockerSandboxExecutor } from './sandbox/sandbox-executor.js';
 import { createStatsRecorder } from './stats/index.js';
+import { discoverModels } from './routing/model-discovery.js';
+import { createRouter, selectClassifierAndFallback } from './routing/index.js';
+import { callLlmIsolated } from './llm/inference-caller.js';
 
 registerGlobalErrorHandlers();
 
@@ -25,6 +28,16 @@ try {
     ? createStatsRecorder(config.statsDbPath, config.statsStorePrompts)
     : undefined;
 
+  const discoveredModels = await discoverModels(config.ollamaBaseUrl, fetch);
+  const router =
+    createRouter({
+      models: discoveredModels,
+      callLlm: (request, options) => callLlmIsolated(request, { provider: config.llmProvider, timeoutMs: options.timeoutMs }),
+      ...(config.classifierModel ? { classifierModel: config.classifierModel } : {}),
+      ...(config.routerFallbackModel ? { fallbackModel: config.routerFallbackModel } : {}),
+      classifierTimeoutMs: config.classifierTimeoutMs,
+    }) ?? undefined;
+
   const handleMessage = createMessageHandler({
     client,
     provider: config.llmProvider,
@@ -33,6 +46,7 @@ try {
     toolRegistry,
     maxIterations: config.toolUseMaxIterations,
     ...(statsRecorder ? { statsRecorder } : {}),
+    ...(router ? { router } : {}),
   });
 
   logger.info('Bot starting', {
@@ -40,6 +54,14 @@ try {
     sandboxImage: config.sandboxImage,
     maxIterations: config.toolUseMaxIterations,
     statsEnabled: config.statsEnabled,
+  });
+
+  logger.info('Model discovery complete', {
+    discoveredModels: discoveredModels.map((m) => m.name),
+    routingEnabled: router !== undefined,
+    ...(discoveredModels.length >= 2
+      ? selectClassifierAndFallback(discoveredModels, config.classifierModel || undefined, config.routerFallbackModel || undefined)
+      : {}),
   });
 
   await startPolling(client, (message) => {

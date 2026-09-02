@@ -51,13 +51,15 @@ export type ChatMessage = UserMessage | AssistantMessage | ToolMessage;
  * Request carried across the connector contract. `prompt` is always present
  * (the latest user turn); `messages` carries the full conversation history for
  * tool-use loops; `tools` advertises available tools; `model` overrides the
- * connector's default model for this call.
+ * connector's default model for this call; `think` disables the model's
+ * "thinking" mode when set to `false` (unset leaves the provider's default).
  */
 export interface LlmRequest {
   prompt: string;
   messages?: ChatMessage[];
   tools?: ToolDefinition[];
   model?: string;
+  think?: boolean;
 }
 
 export interface LlmSuccess {

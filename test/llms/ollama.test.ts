@@ -182,6 +182,30 @@ test('does not include tools in the request body when none are provided', async 
   assert.equal(body.tools, undefined);
 });
 
+test('includes think:false in the request body when request.think is false', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'ok' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  await connector.callLlm({ prompt: 'hi', think: false });
+
+  const body = bodies[0] as { think?: boolean };
+  assert.equal(body.think, false);
+});
+
+test('omits think from the request body when request.think is unset', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'ok' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  await connector.callLlm({ prompt: 'hi' });
+
+  const body = bodies[0] as { think?: boolean };
+  assert.equal('think' in body, false);
+});
+
 test('default base URL is http://ollama:11434 (Docker network hostname)', async () => {
   const original = process.env.OLLAMA_BASE_URL;
   delete process.env.OLLAMA_BASE_URL;

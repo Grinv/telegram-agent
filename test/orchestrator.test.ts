@@ -9,6 +9,7 @@ import type { DockerExecFn } from '../src/sandbox/docker-cli.js';
 import type { StatsRecorder } from '../src/stats/types.js';
 import type { LlmRequest, LlmResult, ToolDefinition } from '../src/llm/types.js';
 import type { TelegramMessage } from '../src/telegram/client.js';
+import type { Router, RoutingDecision } from '../src/routing/types.js';
 
 // ---------------------------------------------------------------------------
 // Fakes & helpers
@@ -508,4 +509,126 @@ test('runLoop returns failure when max iterations are reached', async () => {
     assert.equal(result.reason, 'MAX_ITERATIONS');
     assert.equal(result.iterations, 3);
   }
+});
+
+// ---------------------------------------------------------------------------
+// add-classifier-routing — router integration
+// ---------------------------------------------------------------------------
+
+function fakeRouter(decision: RoutingDecision): { router: Router; routedMessages: string[] } {
+  const routedMessages: string[] = [];
+  return {
+    routedMessages,
+    router: {
+      async route(message: string) {
+        routedMessages.push(message);
+        return decision;
+      },
+    },
+  };
+}
+
+test('when a router is provided, its selected model is passed to runLoop', async () => {
+  const { fn: callLlm, calls } = scriptedCallLlm([{ ok: true, text: 'routed answer' }]);
+  const { router, routedMessages } = fakeRouter({
+    model: 'llama3.1:8b',
+    source: 'classifier',
+    classifierModel: 'qwen2.5:0.5b',
+  });
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm }),
+    client,
+    router,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  assert.deepEqual(routedMessages, ['hi']);
+  assert.equal(calls[0].model, 'llama3.1:8b');
+  assert.equal(client.sent[0].text, 'routed answer');
+});
+
+test('when no router is provided (undefined), behavior is unchanged and no classifier call is made', async () => {
+  const { fn: callLlm, calls } = scriptedCallLlm([{ ok: true, text: 'unrouted answer' }]);
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm }),
+    client,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  assert.equal(calls[0].model, undefined);
+  assert.equal(client.sent[0].text, 'unrouted answer');
+});
+
+test('router fallback: classifier failure routes to the fallback model and records source="fallback" in stats', async () => {
+  const { fn: callLlm, calls } = scriptedCallLlm([{ ok: true, text: 'fallback answer' }]);
+  const { router } = fakeRouter({
+    model: 'llama3.1:8b',
+    source: 'fallback',
+    reason: 'timeout',
+    classifierModel: 'qwen2.5:0.5b',
+  });
+
+  const llmCallStats: unknown[] = [];
+  const statsRecorder: StatsRecorder = {
+    recordMessage: () => {},
+    recordLlmCall: (stats) => llmCallStats.push(stats),
+    recordToolCall: () => {},
+  };
+
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm, statsRecorder }),
+    client,
+    router,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  assert.equal(calls[0].model, 'llama3.1:8b');
+  assert.equal(client.sent[0].text, 'fallback answer');
+
+  const classifierStat = llmCallStats.find((s) => (s as { role?: string }).role === 'classifier') as
+    | { role: string; ok: boolean; model: string }
+    | undefined;
+  assert.ok(classifierStat, 'expected a recordLlmCall with role="classifier"');
+  assert.equal(classifierStat!.ok, false);
+  assert.equal(classifierStat!.model, 'qwen2.5:0.5b');
+});
+
+test('classifier stats entry records the measured latency of router.route()', async () => {
+  const { fn: callLlm } = scriptedCallLlm([{ ok: true, text: 'answer' }]);
+  const ROUTE_DELAY_MS = 20;
+  const router: Router = {
+    async route() {
+      await new Promise((resolve) => setTimeout(resolve, ROUTE_DELAY_MS));
+      return { model: 'llama3.1:8b', source: 'classifier', classifierModel: 'qwen2.5:0.5b' };
+    },
+  };
+
+  const llmCallStats: unknown[] = [];
+  const statsRecorder: StatsRecorder = {
+    recordMessage: () => {},
+    recordLlmCall: (stats) => llmCallStats.push(stats),
+    recordToolCall: () => {},
+  };
+
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm, statsRecorder }),
+    client,
+    router,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  const classifierStat = llmCallStats.find((s) => (s as { role?: string }).role === 'classifier') as
+    | { durationMs?: number }
+    | undefined;
+  assert.ok(classifierStat, 'expected a recordLlmCall with role="classifier"');
+  assert.equal(typeof classifierStat!.durationMs, 'number');
+  assert.ok(classifierStat!.durationMs! >= ROUTE_DELAY_MS, `expected durationMs >= ${ROUTE_DELAY_MS}, got ${classifierStat!.durationMs}`);
 });

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "node --import tsx src/index.ts",
-    "build": "tsc",
+    "build": "tsc && cp src/stats/schema.sql dist/stats/schema.sql",
     "start": "node dist/index.js",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "sandbox:build": "docker build -t telegram-agent-sandbox ./sandbox",

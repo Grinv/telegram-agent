@@ -13,6 +13,9 @@ export interface AppConfig {
   statsDbPath: string;
   statsStorePrompts: boolean;
   statsEnabled: boolean;
+  classifierModel: string;
+  classifierTimeoutMs: number;
+  routerFallbackModel: string;
 }
 
 export class ConfigError extends Error {}
@@ -111,6 +114,27 @@ export function resolveStatsEnabled(raw: string | undefined): boolean {
   return resolveBoolean(raw, 'STATS_ENABLED', true);
 }
 
+/** Pure: resolves CLASSIFIER_MODEL (empty = auto-select the smallest discovered model). */
+export function resolveClassifierModel(raw: string | undefined): string {
+  return raw ?? '';
+}
+
+/** Pure: resolves CLASSIFIER_TIMEOUT_MS (must be a positive integer). */
+export function resolveClassifierTimeoutMs(raw: string | undefined): number {
+  const value = Number(raw ?? 5000);
+  if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
+    throw new ConfigError(
+      `CLASSIFIER_TIMEOUT_MS must be a positive integer (got "${raw ?? '5000'}")`
+    );
+  }
+  return value;
+}
+
+/** Pure: resolves ROUTER_FALLBACK_MODEL (empty = auto-select the largest tool-capable model). */
+export function resolveRouterFallbackModel(raw: string | undefined): string {
+  return raw ?? '';
+}
+
 export function loadConfig(): AppConfig {
   try {
     process.loadEnvFile();
@@ -131,5 +155,8 @@ export function loadConfig(): AppConfig {
     statsDbPath: resolveStatsDbPath(process.env.STATS_DB_PATH),
     statsStorePrompts: resolveStatsStorePrompts(process.env.STATS_STORE_PROMPTS),
     statsEnabled: resolveStatsEnabled(process.env.STATS_ENABLED),
+    classifierModel: resolveClassifierModel(process.env.CLASSIFIER_MODEL),
+    classifierTimeoutMs: resolveClassifierTimeoutMs(process.env.CLASSIFIER_TIMEOUT_MS),
+    routerFallbackModel: resolveRouterFallbackModel(process.env.ROUTER_FALLBACK_MODEL),
   };
 }

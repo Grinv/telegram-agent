@@ -79,6 +79,10 @@ Respond with ONLY the model name, nothing else.
 
 The classifier uses `callLlm` (the same forked-child-process isolation). The classifier call is a regular `LlmRequest` with `model: classifierModel` and no `tools` (classification is text-in, text-out).
 
+The classifier request also sets `think: false`. Newer Ollama models (e.g. the Qwen3 line) support a "thinking" mode that prepends a reasoning trace to the response; if the raw response were parsed with an exact match, any text beyond the bare model name would make classification fail closed to the fallback model. `LlmRequest` gains an optional `think?: boolean` field for this (unset = provider default; the main loop never sets it, so its behavior is unchanged), and `OllamaConnector` forwards it as `think` in the `/api/chat` body when present.
+
+**Response matching is two-step, not a single exact match.** Live testing against a real Ollama instance showed that even with `think: false`, a model doesn't reliably follow "respond with ONLY the model name" — a small model (`qwen2.5:0.5b`) responded `"qwen3.5:0.8b (0.87B params, supports tools)"` instead of the bare name. `classifyModel` therefore: (1) trims the response and checks for an exact match against `models[].name` (the fast, unambiguous path for well-behaved models); (2) if that fails, checks whether the trimmed response *starts with* a known model name, preferring the longest matching name if more than one is a valid prefix (avoids one model name being a prefix of another causing a wrong pick). Only if neither step matches is the response treated as unrecognized.
+
 ### 4. Auto-selection logic
 
 ```
@@ -86,6 +90,8 @@ classifierModel = env.CLASSIFIER_MODEL ?? models.filter(m => true).sort(bySizeAs
 fallbackModel    = env.ROUTER_FALLBACK_MODEL ?? models.filter(m => m.supportsTools).sort(bySizeDesc)[0].name
                    ?? models.sort(bySizeDesc)[0].name  // if no tool-capable, largest overall
 ```
+
+`.env.example` ships `CLASSIFIER_MODEL=qwen3:1.7b` as an explicit default rather than leaving it empty. Auto-selecting the smallest discovered model is a reasonable default in principle, but in practice it can pick something unsuitable — e.g. a multimodal model kept around for other purposes, or a model too weak to classify reliably. `qwen3:1.7b` is a small, text-only (non-multimodal, so no vision-encoder memory overhead) Qwen3 model chosen as a good speed/accuracy trade-off for routing specifically. Auto-selection (smallest discovered model) remains the behavior whenever `CLASSIFIER_MODEL` is unset — this is a change to the shipped default value, not to the auto-selection logic itself.
 
 If only one model is discovered, `classifierModel` and `fallbackModel` are both that model — and routing is skipped entirely (no point classifying when there's only one option).
 
@@ -116,9 +122,11 @@ createMessageHandler(deps):
     // NEW: routing (if router is provided)
     let model: string | undefined
     if (deps.router) {
+      const startedAt = Date.now()
       decision = await deps.router.route(message.text)
+      const durationMs = Date.now() - startedAt
       model = decision.model
-      statsRecorder?.recordLlmCall({ role: "classifier", model: decision.classifierModel, usage: decision.classifierUsage, ... })
+      statsRecorder?.recordLlmCall({ role: "classifier", model: decision.classifierModel, usage: decision.classifierUsage, durationMs, ... })
       logger.info("Routing decision", { model, source: decision.source, reason: decision.reason })
     }
     
@@ -134,7 +142,7 @@ The classifier uses a separate timeout (`CLASSIFIER_TIMEOUT_MS`, default 5000ms)
 
 ### 8. Stats: `role="classifier"`
 
-The classifier LLM call is recorded in `llm_calls` with `role="classifier"`. The main loop calls use `role="main"` (from change 2). This lets the stats report show:
+The classifier LLM call is recorded in `llm_calls` with `role="classifier"`, including its measured latency (`Date.now()` around `router.route()`, same pattern `runLoop` already uses for `role="main"` calls) — without this, `stats:report`'s per-model latency breakdown would show 0ms for the classifier's row, understating a model's real average latency whenever it's used as both classifier and a routed model. The main loop calls use `role="main"` (from change 2). This lets the stats report show:
 
 ```sql
 -- Tokens spent on classification vs. main loop

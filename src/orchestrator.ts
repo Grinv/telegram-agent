@@ -12,6 +12,7 @@ import type { SandboxExecutor } from './sandbox/sandbox-executor.js';
 import type { ToolRegistry } from './tools/registry.js';
 import { logger } from './logger.js';
 import type { TelegramMessage, TelegramReplier } from './telegram/client.js';
+import type { Router } from './routing/types.js';
 
 const FAILURE_REPLY_TEXT = 'Sorry, I could not process your message right now. Please try again later.';
 
@@ -129,6 +130,8 @@ export interface OrchestratorDeps {
   model?: string;
   /** Overridable for tests; defaults to the real process-isolated inference caller. */
   callLlm?: (request: LlmRequest, options: { provider: string; timeoutMs: number }) => Promise<LlmResult>;
+  /** When provided, routes each message to a model before running the loop. See `createRouter`. */
+  router?: Router;
 }
 
 /**
@@ -155,6 +158,25 @@ export function createMessageHandler(deps: OrchestratorDeps) {
       const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
       const tools = deps.toolRegistry.isEmpty() ? [] : deps.toolRegistry.getDefinitions();
 
+      let model = deps.model;
+      if (deps.router) {
+        const routeStartedAt = Date.now();
+        const decision = await deps.router.route(prompt);
+        const routeDurationMs = Date.now() - routeStartedAt;
+        model = decision.model;
+
+        deps.statsRecorder?.recordLlmCall({
+          iteration: -1,
+          role: 'classifier',
+          model: decision.classifierModel,
+          ok: decision.source === 'classifier',
+          durationMs: routeDurationMs,
+          ...(decision.classifierUsage ? { usage: decision.classifierUsage } : {}),
+        });
+
+        logger.info('Routing decision', { model, source: decision.source, reason: decision.reason });
+      }
+
       const loopDeps: LoopDeps = {
         callLlm,
         provider: deps.provider,
@@ -163,7 +185,7 @@ export function createMessageHandler(deps: OrchestratorDeps) {
         toolRegistry: deps.toolRegistry,
         ...(deps.statsRecorder ? { statsRecorder: deps.statsRecorder } : {}),
         maxIterations: deps.maxIterations,
-        ...(deps.model ? { model: deps.model } : {}),
+        ...(model ? { model } : {}),
       };
 
       const result = await runLoop(messages, tools, loopDeps);

@@ -5,9 +5,9 @@ After changes 1 and 2, all LLM calls use a single model (`OLLAMA_MODEL`). The us
 ## What Changes
 
 - Add a **model discovery** module (`src/routing/`) that queries Ollama's `/api/tags` and `/api/show` endpoints at startup to build a registry of available models with their metadata (name, parameter size, family, tool-call support).
-- Add a **classifier** that uses a small, auto-selected model to classify which model should handle a given message. The classifier receives the user message and the list of available models (with metadata), and returns the chosen model name.
+- Add a **classifier** that uses a small, auto-selected model to classify which model should handle a given message. The classifier receives the user message and the list of available models (with metadata), and returns the chosen model name. The classifier call disables the model's "thinking" mode (`think: false`) so the response is more likely to be just the model name, not a reasoning trace. The response is matched with an exact-match fast path, falling back to a "starts with a known model name" check (preferring the longest match) so a response with trailing explanatory text is still recognized correctly.
 - Auto-select the **classifier model** (smallest by parameter size) and the **fallback model** (largest with `tools` support) at discovery time. Both can be overridden via env vars.
-- Integrate routing into the orchestrator: before the think → act → observe loop, call the classifier to select a model, then pass `model` in the `LlmRequest` (the `model?` field already exists from change 1). The classifier call itself is recorded in stats with `role="classifier"` (the stats hook points and `role` field already exist from changes 1 and 2).
+- Integrate routing into the orchestrator: before the think → act → observe loop, call the classifier to select a model, then pass `model` in the `LlmRequest` (the `model?` field already exists from change 1). The classifier call itself is recorded in stats with `role="classifier"` and its measured latency (the stats hook points and `role` field already exist from changes 1 and 2).
 - Handle failure modes: classifier timeout → fallback model; classifier returns unrecognized name → fallback model; classifier unavailable (Ollama down) → fallback model. All fallbacks are logged in stats.
 
 ## Capabilities
@@ -22,11 +22,15 @@ After changes 1 and 2, all LLM calls use a single model (`OLLAMA_MODEL`). The us
 
 - New: `src/routing/types.ts` — `ModelEntry` (`{ name, parameterSize, family, supportsTools }`), `RoutingDecision` (`{ model, source: "classifier" | "fallback", reason? }`).
 - New: `src/routing/model-discovery.ts` — `discoverModels(ollamaBaseUrl, fetchImpl)` queries `/api/tags` + `/api/show` for each model, returns `ModelEntry[]`. Injectable `fetchImpl` for testing.
-- New: `src/routing/classifier.ts` — `classifyModel(message, models, deps)` calls the classifier LLM with a prompt listing available models and their metadata, returns the chosen model name. Injectable `callLlm` for testing.
+- New: `src/routing/classifier.ts` — `classifyModel(message, models, deps)` calls the classifier LLM with a prompt listing available models and their metadata, returns the chosen model name. Matches the response by exact match first, then by longest-known-name-as-prefix if no exact match, so trailing explanatory text after the model name doesn't cause a false "unrecognized". Injectable `callLlm` for testing.
 - New: `src/routing/index.ts` — `createRouter(deps)` factory: takes discovered models, auto-selects classifier + fallback, returns a `Router` with `route(message): Promise<RoutingDecision>`.
 - `src/orchestrator.ts`: `createMessageHandler` accepts an optional `router` dep. When provided, calls `router.route(message)` before `runLoop` and passes the selected model. When `undefined`, behavior is unchanged (uses connector's default model).
 - `src/index.ts`: wires `discoverModels` + `createRouter` at startup, passes `router` to `createMessageHandler`.
 - `src/config.ts`: adds `classifierModel` (env `CLASSIFIER_MODEL`, empty = auto), `classifierTimeoutMs` (env `CLASSIFIER_TIMEOUT_MS`, default 5000), `routerFallbackModel` (env `ROUTER_FALLBACK_MODEL`, empty = auto).
-- `.env.example` / `README.md`: document routing env vars and auto-selection logic.
+- `src/llm/types.ts`: `LlmRequest` gains an optional `think?: boolean` field, used by the classifier call to disable thinking mode. Unset (the main loop's usage) is unchanged behavior.
+- `src/llms/ollama/index.ts`: `OllamaConnector` forwards `think` in the `/api/chat` request body when the field is present on the request.
+- `src/routing/classifier.ts`: `classifyModel` always sets `think: false` on the `LlmRequest` it builds.
+- `.env.example`: `CLASSIFIER_MODEL` ships with an explicit default of `qwen3:1.7b` (a small, text-only Qwen3 model) instead of empty, since blind auto-selection of the smallest discovered model can pick something unsuitable (too weak, or a multimodal model kept for other purposes). Auto-selection still applies when the variable is unset.
+- `.env.example` / `README.md`: document routing env vars, auto-selection logic, and the `think: false` classifier behavior.
 - Tests: new `test/routing/` directory with `model-discovery.test.ts` (fake `fetchImpl` returning `/api/tags` + `/api/show` responses) and `classifier.test.ts` (fake `callLlm` returning a model name).
 - No external npm dependencies — model discovery uses `fetch`, classifier uses the existing `callLlm` forked-child-process isolation.

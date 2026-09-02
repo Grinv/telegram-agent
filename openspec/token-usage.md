@@ -56,3 +56,13 @@ Added versioned SQLite migrations (PRAGMA user_version) for the stats database, 
 - claude-sonnet-5: 148 requests, duration n/a, in 296 / out 62 134 (reasoning 15 719) / cache write 254 502 / cache read 17 345 018
 - Total: 17 661 950 tokens
 - Start: from change file creation time
+
+## 2026-09-02 — add-classifier-routing
+
+Added dynamic Ollama model discovery, LLM-based classifier routing with auto-selected classifier/fallback models, think:false + robust response matching for the classifier, per-role stats recording with latency, and verified the full pipeline end-to-end against a real Ollama instance and live Telegram bot.
+
+- Time: 20h 25m total, model time 15m 11s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-01 23:48 → 2026-09-02 20:13
+- claude-sonnet-5: 821 requests, duration n/a, in 1 642 / out 463 693 (reasoning 157 165) / cache write 1 150 578 / cache read 165 452 726
+- glm-5.2: 80 requests, 15m 11s, in 200 651 / out 34 331 (reasoning 20 620) / cache write 0 / cache read 5 453 376
+- Total: 172 756 997 tokens
+- Start: from change file creation time

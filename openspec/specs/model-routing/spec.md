@@ -2,7 +2,7 @@
 
 Routes each incoming message to the best-fitting LLM model by dynamically discovering available models from Ollama at startup and using a small classifier LLM to select the model per message — so simple messages go to fast/cheap models and complex ones to capable/expensive models, reducing token cost and latency.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Available models are discovered from Ollama at startup
 The system SHALL query Ollama's `/api/tags` endpoint at startup to discover all locally available models, and SHALL query `/api/show` for each model to determine its capabilities (including tool-call support), parameter size, and family. The discovered model list SHALL be cached in memory for the process lifetime.
@@ -38,15 +38,33 @@ The system SHALL automatically select the largest model that supports tool calli
 - **THEN** the fallback model is the largest model overall (tool calling may fail at runtime, but routing still works for text-only responses)
 
 ### Requirement: Classifier selects the model for each message
-The system SHALL call the classifier model with the user message text and a list of available models (with their metadata: name, parameter size, tool support) before entering the think → act → observe loop. The classifier SHALL return the name of the model that should handle the message. The selected model SHALL be passed to `runLoop` via `LlmRequest.model`.
+The system SHALL call the classifier model with the user message text and a list of available models (with their metadata: name, parameter size, tool support) before entering the think → act → observe loop. The classifier SHALL return the name of the model that should handle the message. The selected model SHALL be passed to `runLoop` via `LlmRequest.model`. The classifier call's latency SHALL be measured and recorded alongside its stats row, consistent with how the main loop's LLM calls record latency.
 
 #### Scenario: Simple message routed to small model
 - **WHEN** the user sends "hello" and `qwen2.5:0.5b` is available
-- **THEN** the classifier returns `qwen2.5:0.5b`, the loop uses that model, and the classifier call is recorded in stats with `role="classifier"`
+- **THEN** the classifier returns `qwen2.5:0.5b`, the loop uses that model, and the classifier call is recorded in stats with `role="classifier"` and its measured latency
 
 #### Scenario: Complex message routed to large model
 - **WHEN** the user sends "write a Python script to parse a CSV file and calculate statistics" and `llama3.1:8b` is available with tool support
-- **THEN** the classifier returns `llama3.1:8b`, the loop uses that model, and the classifier call is recorded in stats with `role="classifier"`
+- **THEN** the classifier returns `llama3.1:8b`, the loop uses that model, and the classifier call is recorded in stats with `role="classifier"` and its measured latency
+
+### Requirement: Classifier calls disable thinking mode
+The system SHALL send the classifier's LLM call with thinking mode disabled, so the response contains only the selected model name rather than a reasoning trace. This reduces (but does not eliminate) the chance of extra text alongside the model name in the response.
+
+#### Scenario: Classifier model supports a thinking mode
+- **WHEN** the classifier model is one that would otherwise prepend reasoning text before its answer (e.g. a Qwen3-family model)
+- **THEN** the classifier call is made with thinking mode disabled, so the response is expected to contain only the model name and is matched accordingly
+
+### Requirement: Classifier response matching tolerates trailing text
+The system SHALL match the classifier's response against the discovered model list by first checking for an exact match (after trimming), and if none is found, checking whether the trimmed response starts with a known model name — preferring the longest matching name when more than one model name is a valid prefix. This allows a correct selection to still be recognized when the classifier appends explanatory text after the model name instead of following the "respond with only the model name" instruction exactly.
+
+#### Scenario: Classifier appends explanatory text after the model name
+- **WHEN** the classifier's response is `"qwen3.5:0.8b (0.87B params, supports tools)"` and `qwen3.5:0.8b` is a discovered model
+- **THEN** the response is matched as selecting `qwen3.5:0.8b`, not treated as unrecognized
+
+#### Scenario: Response does not start with any known model name
+- **WHEN** the classifier's response does not start with any discovered model's name (e.g. it names a model that isn't in the registry, or is unrelated text)
+- **THEN** the response is treated as unrecognized, per the existing fallback behavior
 
 ### Requirement: Routing degrades gracefully on classifier failure
 The system SHALL fall back to the fallback model when: the classifier call times out, the classifier returns a model name not in the registry, or the classifier call fails (Ollama error). The fallback decision SHALL be recorded in stats so the user can observe how often fallbacks occur.
