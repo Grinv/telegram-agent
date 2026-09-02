@@ -76,3 +76,14 @@ Ran the agent inside a Docker Sandboxes microVM: default-deny egress, three gran
 - <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
 - Total: 47 928 279 tokens
 - Start: specified manually
+
+## 2026-09-03 — fix-telegram-message-limit
+
+Split over-long Telegram replies into ordered parts within the 4096-char limit, and finalize per-message stats only after delivery succeeds, recording delivery failures with a distinct DELIVERY_FAILED reason.
+
+- Time: 6h 7m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 22:28 → 2026-09-03 04:35
+- claude-opus-5: 390 requests, duration n/a, in 780 / out 366 154 (reasoning 121 530) / cache write 964 023 / cache read 84 259 323
+- claude-sonnet-5: 88 requests, duration n/a, in 176 / out 58 646 (reasoning 29 675) / cache write 183 226 / cache read 10 975 289
+- <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 96 807 617 tokens
+- Start: from change file creation time

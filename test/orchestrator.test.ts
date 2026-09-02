@@ -389,6 +389,67 @@ test('statsRecorder receives the reply-sent hook, marked failed, when an unexpec
   assert.equal(replyStats.reason, 'UNEXPECTED_ERROR');
 });
 
+// ---------------------------------------------------------------------------
+// fix-telegram-message-limit — finalize stats after delivery
+// ---------------------------------------------------------------------------
+
+test('reply that cannot be delivered is recorded as a failure with a delivery-specific reason, never as a success', async () => {
+  const { fn: callLlm } = scriptedCallLlm([{ ok: true, text: 'hello back' }]);
+  const messages: unknown[] = [];
+  const statsRecorder: StatsRecorder = {
+    recordMessage: (stats) => messages.push(stats),
+    recordLlmCall: () => {},
+    recordToolCall: () => {},
+  };
+  const client = {
+    sendMessage: async () => {
+      throw new Error('network down');
+    },
+  };
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm, statsRecorder }),
+    client,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  assert.equal(messages.length, 2, 'recordMessage called on receive and on reply');
+  const replyStats = messages[1] as { ok: boolean; reason?: string };
+  assert.equal(replyStats.ok, false);
+  assert.equal(replyStats.reason, 'DELIVERY_FAILED');
+  assert.ok(
+    !messages.some((m) => (m as { ok?: boolean }).ok === true),
+    'the message must never be recorded as a success'
+  );
+});
+
+test('on the happy path, the finalizing recordMessage call happens after sendMessage resolves', async () => {
+  const { fn: callLlm } = scriptedCallLlm([{ ok: true, text: 'hello back' }]);
+  const order: string[] = [];
+  const client = {
+    sendMessage: async () => {
+      order.push('sendMessage');
+    },
+  };
+  const statsRecorder: StatsRecorder = {
+    recordMessage: (stats) => {
+      if (stats.replySentAt !== undefined) {
+        order.push('recordMessage:finalize');
+      }
+    },
+    recordLlmCall: () => {},
+    recordToolCall: () => {},
+  };
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm, statsRecorder }),
+    client,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  assert.deepEqual(order, ['sendMessage', 'recordMessage:finalize']);
+});
+
 test('loop works normally (no errors) when statsRecorder is undefined', async () => {
   const { fn: callLlm } = scriptedCallLlm([{ ok: true, text: 'no stats needed' }]);
   const executor = fakeSandboxExecutor([]);

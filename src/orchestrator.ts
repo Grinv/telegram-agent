@@ -157,6 +157,8 @@ export function createMessageHandler(deps: OrchestratorDeps) {
       receivedAt: Date.now(),
     });
 
+    let deliveryAttempted = false;
+
     try {
       const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
       const tools = deps.toolRegistry.isEmpty() ? [] : deps.toolRegistry.getDefinitions();
@@ -195,6 +197,15 @@ export function createMessageHandler(deps: OrchestratorDeps) {
 
       const reply = result.ok ? result.text : FAILURE_REPLY_TEXT;
 
+      logger.info(result.ok ? 'Inference succeeded, sending reply' : 'Loop failed, sending failure notice', {
+        chatId,
+        ...(result.ok ? { reply } : { reason: result.reason }),
+        iterations: result.iterations,
+      });
+
+      deliveryAttempted = true;
+      await deps.client.sendMessage(chatId, reply);
+
       deps.statsRecorder?.recordMessage({
         chatId,
         ...(result.ok ? { reply } : { reason: result.reason }),
@@ -202,14 +213,6 @@ export function createMessageHandler(deps: OrchestratorDeps) {
         ok: result.ok,
         iterations: result.iterations,
       });
-
-      logger.info(result.ok ? 'Inference succeeded, sending reply' : 'Loop failed, sending failure notice', {
-        chatId,
-        ...(result.ok ? { reply } : { reason: result.reason }),
-        iterations: result.iterations,
-      });
-
-      await deps.client.sendMessage(chatId, reply);
     } catch (error) {
       logger.error('Unexpected error while handling message', {
         chatId,
@@ -220,7 +223,7 @@ export function createMessageHandler(deps: OrchestratorDeps) {
         chatId,
         replySentAt: Date.now(),
         ok: false,
-        reason: 'UNEXPECTED_ERROR',
+        reason: deliveryAttempted ? 'DELIVERY_FAILED' : 'UNEXPECTED_ERROR',
       });
 
       try {

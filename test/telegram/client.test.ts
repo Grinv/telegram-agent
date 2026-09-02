@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TelegramClient } from '../../src/telegram/client.js';
+import { TelegramClient, splitMessageForDelivery, TELEGRAM_MESSAGE_LIMIT } from '../../src/telegram/client.js';
 
 function jsonResponse(body: unknown): Response {
   return {
@@ -61,4 +61,79 @@ test('getUpdates throws when Telegram responds with ok:false', async () => {
   const client = new TelegramClient('TEST_TOKEN', fakeFetch);
 
   await assert.rejects(client.getUpdates(undefined, 30), /bad request/);
+});
+
+// ---------------------------------------------------------------------------
+// fix-telegram-message-limit — splitMessageForDelivery
+// ---------------------------------------------------------------------------
+
+test('splitMessageForDelivery returns the text unchanged when within the limit', () => {
+  const text = 'short text';
+  assert.deepEqual(splitMessageForDelivery(text, 100), [text]);
+});
+
+test('splitMessageForDelivery splits over-long text into parts that reproduce the input exactly', () => {
+  const text = 'a'.repeat(250);
+  const parts = splitMessageForDelivery(text, 100);
+
+  assert.ok(parts.length >= 3);
+  assert.ok(parts.every((part) => part.length <= 100));
+  assert.equal(parts.join(''), text);
+});
+
+test('splitMessageForDelivery breaks at a line boundary when one is within reach of the limit', () => {
+  const text = `${'a'.repeat(90)}\n${'b'.repeat(90)}`;
+  const parts = splitMessageForDelivery(text, 100);
+
+  assert.deepEqual(parts, [`${'a'.repeat(90)}\n`, 'b'.repeat(90)]);
+});
+
+test('splitMessageForDelivery falls back to a word boundary when there are no line breaks', () => {
+  const text = 'word '.repeat(30);
+  const parts = splitMessageForDelivery(text, 100);
+
+  assert.ok(parts.length >= 2);
+  for (const part of parts.slice(0, -1)) {
+    assert.ok(part.endsWith(' '), `expected part to end at a word boundary, got ${JSON.stringify(part)}`);
+  }
+  assert.equal(parts.join(''), text);
+});
+
+test('splitMessageForDelivery never splits a surrogate pair', () => {
+  const text = '\u{1F600}'.repeat(60); // 120 UTF-16 code units, no line/word boundaries
+  const parts = splitMessageForDelivery(text, 99);
+
+  assert.equal(parts.join(''), text);
+  for (const part of parts) {
+    assert.ok(part.length <= 99);
+    const roundTripped = Buffer.from(part, 'utf8').toString('utf8');
+    assert.doesNotMatch(roundTripped, /�/, 'part must not contain a broken surrogate pair');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// fix-telegram-message-limit — sendMessage delivers over-long replies in parts
+// ---------------------------------------------------------------------------
+
+test('sendMessage issues one API call per part, in order, and rejects when a part is rejected', async () => {
+  const sentTexts: string[] = [];
+  let callCount = 0;
+  const fakeFetch = (async (_url: string, init?: RequestInit) => {
+    callCount++;
+    const body = JSON.parse((init?.body as string) ?? '{}') as { text: string };
+    sentTexts.push(body.text);
+    if (callCount === 2) {
+      return { ok: false, status: 400, json: async () => ({ ok: false }) } as Response;
+    }
+    return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) } as Response;
+  }) as typeof fetch;
+
+  const client = new TelegramClient('TEST_TOKEN', fakeFetch);
+  const longText = 'a'.repeat(9000);
+
+  await assert.rejects(client.sendMessage(42, longText));
+
+  assert.equal(sentTexts.length, 2, 'stopped after the rejected part, never attempted the third');
+  assert.equal(sentTexts[0].length, TELEGRAM_MESSAGE_LIMIT);
+  assert.equal(sentTexts.join(''), longText.slice(0, sentTexts.join('').length));
 });

@@ -20,6 +20,70 @@ export interface TelegramReplier {
   sendMessage(chatId: number, text: string): Promise<void>;
 }
 
+/** The Bot API rejects a `sendMessage` text longer than this many UTF-16 code units. */
+export const TELEGRAM_MESSAGE_LIMIT = 4096;
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+/** Nudges a cut index back by one if it would fall between the two halves of a surrogate pair. */
+function avoidSurrogateSplit(text: string, index: number): number {
+  if (
+    index > 0 &&
+    index < text.length &&
+    isHighSurrogate(text.charCodeAt(index - 1)) &&
+    isLowSurrogate(text.charCodeAt(index))
+  ) {
+    return index - 1;
+  }
+  return index;
+}
+
+/** Finds where to end the next part: last line boundary within `limit`, else last word boundary, else a hard cut. */
+function findCutPoint(text: string, limit: number): number {
+  const maxCut = avoidSurrogateSplit(text, limit);
+
+  const lastNewline = text.lastIndexOf('\n', maxCut - 1);
+  if (lastNewline >= 0) {
+    return lastNewline + 1;
+  }
+
+  const lastSpace = text.lastIndexOf(' ', maxCut - 1);
+  if (lastSpace >= 0) {
+    return lastSpace + 1;
+  }
+
+  return maxCut;
+}
+
+/**
+ * Splits text into parts each within `limit` UTF-16 code units. Concatenating
+ * the returned parts in order reproduces the input exactly. Never splits a
+ * surrogate pair.
+ */
+export function splitMessageForDelivery(text: string, limit: number): string[] {
+  if (text.length <= limit) {
+    return [text];
+  }
+
+  const parts: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > limit) {
+    const cut = findCutPoint(remaining, limit);
+    parts.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut);
+  }
+  parts.push(remaining);
+
+  return parts;
+}
+
 export class TelegramClient implements TelegramReplier {
   constructor(
     private readonly token: string,
@@ -51,6 +115,13 @@ export class TelegramClient implements TelegramReplier {
   }
 
   async sendMessage(chatId: number, text: string): Promise<void> {
+    const parts = splitMessageForDelivery(text, TELEGRAM_MESSAGE_LIMIT);
+    for (const part of parts) {
+      await this.sendPart(chatId, part);
+    }
+  }
+
+  private async sendPart(chatId: number, text: string): Promise<void> {
     const response = await this.fetchImpl(this.apiUrl('sendMessage'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
