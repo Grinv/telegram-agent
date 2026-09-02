@@ -26,15 +26,40 @@ context: |
   do not introduce per-chat conversation history without an explicit decision
   to change that.
 
+  Planning artifacts must be self-contained. A change is read and implemented
+  by someone - or some agent - who did not see the conversation that produced
+  it. Never rely on chat history, prior messages, or "as discussed" to carry
+  meaning: if a fact, decision, or constraint matters to the change, write it
+  into the artifact. Refer to other artifacts of the same change and to files
+  in the repo by path; never refer to a conversation.
+
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - State the problem concretely enough that a reader who was not part of
+      the discussion can verify it independently - name the file, symbol, or
+      observed behavior at issue rather than describing it in the abstract.
+    - Record what was decided and why, including options that were rejected,
+      when the decision is not obvious from the problem statement.
+  specs:
+    - A spec must be readable on its own, without the proposal or design.
+      Do not write requirements whose meaning depends on knowing why the
+      change was made.
+    - Name the observable behavior, not the code that implements it. A reader
+      should be able to write a test from the scenario alone.
+  design:
+    - Record the rationale for each decision in the document itself, including
+      the alternatives considered and why they lost. A decision whose reasoning
+      lives only in a conversation is not documented.
+  tasks:
+    - Each task must name the file or module it touches and how to verify it,
+      so it can be executed without reconstructing the discussion.
+    - Every scenario in the change's specs must be covered by at least one
+      task that adds or updates an automated test. Tests are tasks in their
+      own right, not a trailing "add tests" catch-all.
+    - Finish with a task that runs the full suite and the type check, so a
+      change is never considered done on the strength of new tests alone.
 
 # Per-operation guidance (optional)
 # Add advisory guidance for how apply and archive work should be conducted.
