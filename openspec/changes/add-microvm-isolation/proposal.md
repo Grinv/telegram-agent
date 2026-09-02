@@ -13,7 +13,7 @@ Docker Sandboxes (`sbx`) provides exactly this, and a spike on this machine conf
 - Host directories are granted explicitly, each read-only or read-write, instead of the agent running in the user's live working tree by default.
 - `TELEGRAM_BOT_TOKEN` stops being an environment variable in a `.env` file and becomes a managed secret bound to `api.telegram.org`, so the value is attached to outbound requests to that host without ever existing inside the boundary.
 - The per-tool-call container sandbox is kept, unchanged, as a second layer inside the microVM.
-- **BREAKING for the LLM provider**: services on the host are unreachable from inside the boundary unless explicitly granted by port, and granting one requires exposing that service on all of the host's interfaces. Rather than open Ollama to the local network, it moves inside the boundary. See design.md — Decisions for the alternatives and what they cost.
+- The LLM provider stays where it is, on the host, keeping its loopback-only binding. It becomes reachable from inside the boundary through a single explicit port grant, and remains unreachable from the local network. See design.md — Decisions.
 - The agent runs from its compiled output rather than from TypeScript sources, because a host-installed `node_modules` is not usable inside (see design.md).
 
 ## Capabilities

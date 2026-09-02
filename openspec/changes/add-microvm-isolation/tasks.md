@@ -13,12 +13,12 @@ Verification note: several scenarios here assert that something is *blocked*. A 
 - [ ] 2.2 Verify the token is genuinely absent inside the boundary: search the environment, the working tree, and any generated config for the token value (covers spec scenario "Credential is not readable from inside"). Verify: the value appears nowhere inside.
 - [ ] 2.3 Verify the bot authenticates anyway, by starting it and confirming `getUpdates` succeeds rather than returning 401/404 (covers "Agent authenticates without holding the credential"). Verify: the polling loop runs without authentication errors.
 
-## 3. LLM provider inside the boundary
+## 3. LLM provider on the host
 
-- [ ] 3.1 Add the container registry hosts needed to pull the LLM provider image and model to the boundary's allow list, keeping the list to what is actually required. Verify: `docker pull` of the provider image succeeds inside the boundary.
-- [ ] 3.2 Run the LLM provider on the boundary's own container runtime and pull the configured model into it. Verify: the provider's model list endpoint responds from inside the boundary with the model present.
-- [ ] 3.3 Size the boundary's memory explicitly for the chosen model rather than relying on the default allocation (see design.md — Risks). Verify: the model loads and answers a trivial prompt without the boundary running out of memory.
-- [ ] 3.4 Confirm inference traffic does not require any outbound grant, by removing the registry grants after the pull and checking the bot still gets answers (covers spec scenario "Bot reaches the LLM provider inside the boundary"). Verify: inference succeeds with no registry hosts in the allow list.
+- [ ] 3.1 Keep the LLM provider on the host with its loopback-only binding (Ollama's default `127.0.0.1:11434`); do not publish it on other interfaces. Verify: `lsof -nP -iTCP:11434 -sTCP:LISTEN` on the host shows it bound to `127.0.0.1`, not `*`.
+- [ ] 3.2 Grant the provider's port to the boundary as `localhost:11434`, and point the bot at `http://host.docker.internal:11434` via `OLLAMA_BASE_URL`. Verify: the bot's startup model discovery lists the pulled models instead of logging a non-OK status.
+- [ ] 3.3 Paired check for "Provider is unreachable without the grant" / "Provider is reachable from the isolated bot": remove the grant and confirm inference fails, then restore it and confirm inference succeeds. Verify: the same request fails, then succeeds.
+- [ ] 3.4 Check "Provider is not reachable from the local network": from another machine on the LAN, request this host's port 11434. Verify: the request fails while the isolated bot's inference still works.
 
 ## 4. Running the agent
 
