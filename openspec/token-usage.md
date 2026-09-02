@@ -66,3 +66,13 @@ Added dynamic Ollama model discovery, LLM-based classifier routing with auto-sel
 - glm-5.2: 80 requests, 15m 11s, in 200 651 / out 34 331 (reasoning 20 620) / cache write 0 / cache read 5 453 376
 - Total: 172 756 997 tokens
 - Start: from change file creation time
+
+## 2026-09-03 — add-microvm-isolation (+ fix-ollama-message-mapping)
+
+Ran the agent inside a Docker Sandboxes microVM: default-deny egress, three granted host directories, two granted host ports, and the Telegram token held by a host-side broker because sbx substitutes secrets into headers while Telegram authenticates by URL path. Verifying the live tool-call path exposed a second defect and pulled fix-ollama-message-mapping into the same session: the Ollama connector sent tool definitions flat, so every tool call came back with an empty name and the act step was never reached in any deployment. One combined entry covers both changes — they were implemented in one unsplittable window, and two entries would double-count the shared tokens.
+
+- Time: 4h 3m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-03 00:03 → 2026-09-03 04:06
+- claude-opus-5: 249 requests, duration n/a, in 498 / out 195 172 (reasoning 71 952) / cache write 696 443 / cache read 47 036 166
+- <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 47 928 279 tokens
+- Start: specified manually
