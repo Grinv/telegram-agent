@@ -160,3 +160,14 @@ Extended agent-stats instrumentation with real tool-call durations/sizes, per-ca
 - <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
 - Total: 297 666 852 tokens
 - Start: from change file creation time
+
+## 2026-09-04 — add-observability-dashboard
+
+Implemented three read-only stats dashboard views (summary, timeline, analysis) over the existing SQLite stats DB, verified against real bot data, and synced the delta spec into agent-stats.
+
+- Time: 25h 59m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 23:49 → 2026-09-04 01:49
+- claude-sonnet-5: 1 291 requests, duration n/a, in 2 582 / out 725 879 (reasoning 301 389) / cache write 2 245 787 / cache read 249 526 075
+- claude-opus-5: 287 requests, duration n/a, in 574 / out 233 436 (reasoning 77 252) / cache write 811 800 / cache read 60 644 964
+- <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 314 191 097 tokens
+- Start: from change file creation time

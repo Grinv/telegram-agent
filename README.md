@@ -109,7 +109,7 @@ Uses Node's built-in test runner (`node:test`) and `node:assert`, so there's no 
 - `src/sandbox/`: Docker-backed tool execution. `docker-cli.ts` wraps `child_process.execFile('docker', ...)` with timeout, `AbortSignal`, and stdin support. `sandbox-executor.ts`'s `DockerSandboxExecutor` spawns an ephemeral, read-only container per act step — with no network access by default, or attached to a dedicated egress network per `SANDBOX_NETWORK` (see [Sandbox network modes](#sandbox-network-modes)) — runs the requested tool calls sequentially inside it via `docker exec`, and tears it down in a `finally` block (with an auto-kill timer as a backstop). Its constructor takes an optional `extraContext` object that's merged into every per-call `ToolContext` alongside `execInContainer` — this is how `callLlm`/`runLoop`/etc. reach `spawn_subagent`.
 - `src/orchestrator.ts`: runs a think → act → observe loop per message. `runLoop()` sends the conversation + available tool definitions to the LLM; if the LLM requests tool calls, they're executed in a fresh sandbox and the results are fed back, repeating until a final text answer or `TOOL_USE_MAX_ITERATIONS` is reached. `createMessageHandler()` wires this to a Telegram message and reply; when no tools are registered, the loop exits after the first LLM call — the same one-shot behavior as before tool-use existed. No state is kept between messages.
 - `src/logger.ts` / `src/error-handlers.ts`: colorized console logging and top-level exception/rejection capture.
-- `src/stats/`: `SqliteStatsRecorder` implements the orchestrator's `StatsRecorder` hook using `node:sqlite`, writing to `data/stats.db` (gitignored). `reporter.ts`'s `StatsReporter` queries that database and renders a Markdown report; `reporter-cli.ts` is the `npm run stats:report` entrypoint. See [Statistics](#statistics).
+- `src/stats/`: `SqliteStatsRecorder` implements the orchestrator's `StatsRecorder` hook using `node:sqlite`, writing to `data/stats.db` (gitignored). `reporter.ts`'s `StatsReporter` queries that database and renders the aggregate Markdown report (`reporter-cli.ts`, `npm run stats:report`) plus three dashboard views built on the read-only queries in `dashboard-queries.ts` and rendered by `dashboard-views.ts`: summary (`summary-cli.ts`), timeline (`timeline-cli.ts`), and analysis (`analysis-cli.ts`). See [Statistics](#statistics).
 - `src/routing/`: dynamic model discovery and classifier-based routing. See [Model Routing](#model-routing).
 
 Each inference call runs in its own child process (see `inference-caller.ts`), so a connector that hangs, crashes, or throws can never block or take down the bot process. The parent kills the child on timeout and reports a typed failure instead. Tool execution has an analogous isolation boundary one level down: each act step runs in its own disposable Docker container, so a tool call can never touch the bot's own filesystem, network, or process.
@@ -198,6 +198,20 @@ npm run stats:report
 ```
 
 This reads `STATS_DB_PATH` and writes `data/stats-report.md` with per-model token totals, a per-role token breakdown, average latency per model, overall success rate, and a tool-usage summary. Running it against an empty database produces a report that says "No data" rather than failing.
+
+**Dashboard views.** Three further views, built on `src/stats/dashboard-queries.ts`, answer questions the report above can't:
+
+```bash
+npm run stats:summary            # data/stats-summary.md
+npm run stats:timeline -- <id>   # data/stats-timeline-<id>.md
+npm run stats:analysis           # data/stats-analysis.md
+```
+
+- **Summary** (`stats:summary`) — tasks completed, input/output/cached token totals, estimated cost, per-task averages (tokens, turns, tool calls), and tools ranked by their share of tokens. "What does an average task cost?"
+- **Timeline** (`stats:timeline -- <id>`) — one task's turns in order, each with its LLM token count and the tool calls made in that turn with their result sizes. `<id>` is a `messages.id` row (e.g. from browsing `data/stats.db` directly, or from another view's output). An unknown id produces a "Task not found" file rather than failing. "Why did this one run cost what it did?"
+- **Analysis** (`stats:analysis`) — tools ranked by token share, the single most expensive turn, input broken down by content category (instructions / user request / conversation / tool output), and how much input was repeated vs. new. "Which tools and which kind of content are driving token spend?"
+
+All three, like the report above, run against an empty database without failing. Where a figure was never actually measured — no provider in the data reported cache statistics, a model has no configured price, or a row predates the column that field lives in — the view says so explicitly (`unavailable`, or a `(partial — ...)` / "excluded" note) rather than showing a zero or averaging in a migration default as if it were an observation.
 
 The database schema is versioned via SQLite's `PRAGMA user_version`. Both the recorder and the reporter run `migrate()` (`src/stats/migrations.ts`) on every open, applying any pending migrations in order and preserving existing rows — there's no need to delete `data/stats.db` when the schema changes. To change the schema, append a new `{ version: N, up: (db) => ... }` entry to the `MIGRATIONS` array in `src/stats/migrations.ts` (an `ALTER TABLE`, an additional `CREATE TABLE`, etc.) rather than editing `schema.sql` in place; each pending migration runs exactly once, inside its own transaction, which rolls back if the migration throws.
 

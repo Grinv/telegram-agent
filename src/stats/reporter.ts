@@ -2,6 +2,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { migrate } from './migrations.js';
+import { summaryStats, taskTimeline, analysisStats } from './dashboard-queries.js';
+import { renderSummary, renderTimeline, renderAnalysis } from './dashboard-views.js';
 
 interface ModelTotalsRow {
   model: string;
@@ -88,6 +90,34 @@ export class StatsReporter {
         ? renderReport({ modelTotals, roleBreakdown, latencyByModel, successRate, toolUsage })
         : '# Stats Report\n\nNo data.\n';
 
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, markdown, 'utf8');
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Generates the summary view over all recorded activity. */
+  async generateSummary(outputPath: string): Promise<void> {
+    await this.withDb(outputPath, (db) => renderSummary(summaryStats(db)));
+  }
+
+  /** Generates the timeline view for one task. */
+  async generateTimeline(taskId: number, outputPath: string): Promise<void> {
+    await this.withDb(outputPath, (db) => renderTimeline(taskTimeline(db, taskId), taskId));
+  }
+
+  /** Generates the token-consumption analysis view over all recorded activity. */
+  async generateAnalysis(outputPath: string): Promise<void> {
+    await this.withDb(outputPath, (db) => renderAnalysis(analysisStats(db)));
+  }
+
+  private async withDb(outputPath: string, render: (db: DatabaseSync) => string): Promise<void> {
+    await mkdir(dirname(this.dbPath), { recursive: true });
+    const db = new DatabaseSync(this.dbPath);
+    try {
+      migrate(db);
+      const markdown = render(db);
       await mkdir(dirname(outputPath), { recursive: true });
       await writeFile(outputPath, markdown, 'utf8');
     } finally {

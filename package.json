@@ -23,7 +23,10 @@
     "isolated:stop": "node scripts/isolation.mjs stop",
     "isolated:status": "node scripts/isolation.mjs status",
     "isolated:destroy": "node scripts/isolation.mjs destroy",
-    "stats:report": "node --import tsx src/stats/reporter-cli.ts"
+    "stats:report": "node --import tsx src/stats/reporter-cli.ts",
+    "stats:summary": "node --import tsx src/stats/summary-cli.ts",
+    "stats:timeline": "node --import tsx src/stats/timeline-cli.ts",
+    "stats:analysis": "node --import tsx src/stats/analysis-cli.ts"
   },
   "dependencies": {
     "undici": "^8.10.1"
