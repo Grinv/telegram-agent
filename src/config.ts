@@ -10,6 +10,8 @@ export interface AppConfig {
   sandboxTimeoutMs: number;
   sandboxMemoryLimit: string;
   sandboxCpuLimit: string;
+  sandboxNetwork: 'isolated' | 'egress';
+  sandboxNetworkName: string;
   toolUseMaxIterations: number;
   statsDbPath: string;
   statsStorePrompts: boolean;
@@ -91,6 +93,20 @@ export function resolveSandboxCpuLimit(raw: string | undefined): string {
     );
   }
   return value;
+}
+
+/** Pure: resolves and validates SANDBOX_NETWORK, defaulting to full isolation. */
+export function resolveSandboxNetwork(raw: string | undefined): 'isolated' | 'egress' {
+  const value = raw ?? 'isolated';
+  if (value !== 'isolated' && value !== 'egress') {
+    throw new ConfigError(`SANDBOX_NETWORK must be "isolated" or "egress" (got "${value}")`);
+  }
+  return value;
+}
+
+/** Pure: resolves SANDBOX_NETWORK_NAME, the dedicated Docker network used in egress mode. */
+export function resolveSandboxNetworkName(raw: string | undefined): string {
+  return raw ?? 'telegram-agent-sandbox-net';
 }
 
 /** Pure: resolves TOOL_USE_MAX_ITERATIONS (must be a positive integer). */
@@ -188,6 +204,8 @@ export function loadConfig(): AppConfig {
     sandboxTimeoutMs: resolveSandboxTimeoutMs(process.env.SANDBOX_TIMEOUT_MS),
     sandboxMemoryLimit: resolveSandboxMemoryLimit(process.env.SANDBOX_MEMORY_LIMIT),
     sandboxCpuLimit: resolveSandboxCpuLimit(process.env.SANDBOX_CPU_LIMIT),
+    sandboxNetwork: resolveSandboxNetwork(process.env.SANDBOX_NETWORK),
+    sandboxNetworkName: resolveSandboxNetworkName(process.env.SANDBOX_NETWORK_NAME),
     toolUseMaxIterations: resolveToolUseMaxIterations(process.env.TOOL_USE_MAX_ITERATIONS),
     statsDbPath: resolveStatsDbPath(process.env.STATS_DB_PATH),
     statsStorePrompts: resolveStatsStorePrompts(process.env.STATS_STORE_PROMPTS),

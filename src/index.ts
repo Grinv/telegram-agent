@@ -59,6 +59,8 @@ try {
       timeoutMs: config.sandboxTimeoutMs,
       memoryLimit: config.sandboxMemoryLimit,
       cpuLimit: config.sandboxCpuLimit,
+      network: config.sandboxNetwork,
+      networkName: config.sandboxNetworkName,
     },
     undefined,
     extraContext,
@@ -79,6 +81,7 @@ try {
   logger.info('Bot starting', {
     llmProvider: config.llmProvider,
     sandboxImage: config.sandboxImage,
+    sandboxNetwork: config.sandboxNetwork,
     maxIterations: config.toolUseMaxIterations,
     statsEnabled: config.statsEnabled,
   });

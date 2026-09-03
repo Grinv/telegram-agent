@@ -10,6 +10,8 @@ import {
   resolveSandboxTimeoutMs,
   resolveSandboxMemoryLimit,
   resolveSandboxCpuLimit,
+  resolveSandboxNetwork,
+  resolveSandboxNetworkName,
   resolveToolUseMaxIterations,
   resolveStatsDbPath,
   resolveStatsStorePrompts,
@@ -136,6 +138,27 @@ test('resolveSandboxCpuLimit throws ConfigError for non-positive values', () => 
   assert.throws(() => resolveSandboxCpuLimit('0'), ConfigError);
   assert.throws(() => resolveSandboxCpuLimit('-1'), ConfigError);
   assert.throws(() => resolveSandboxCpuLimit('abc'), ConfigError);
+});
+
+test('resolveSandboxNetwork defaults to isolated', () => {
+  assert.equal(resolveSandboxNetwork(undefined), 'isolated');
+});
+
+test('resolveSandboxNetwork accepts each explicit valid value', () => {
+  assert.equal(resolveSandboxNetwork('isolated'), 'isolated');
+  assert.equal(resolveSandboxNetwork('egress'), 'egress');
+});
+
+test('resolveSandboxNetwork throws ConfigError for an unrecognized value', () => {
+  assert.throws(() => resolveSandboxNetwork('bridge'), ConfigError);
+});
+
+test('resolveSandboxNetworkName defaults to telegram-agent-sandbox-net', () => {
+  assert.equal(resolveSandboxNetworkName(undefined), 'telegram-agent-sandbox-net');
+});
+
+test('resolveSandboxNetworkName returns the provided value', () => {
+  assert.equal(resolveSandboxNetworkName('custom-net'), 'custom-net');
 });
 
 test('resolveToolUseMaxIterations defaults to 5', () => {

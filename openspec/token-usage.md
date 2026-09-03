@@ -87,3 +87,14 @@ Split over-long Telegram replies into ordered parts within the 4096-char limit, 
 - <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
 - Total: 96 807 617 tokens
 - Start: from change file creation time
+
+## 2026-09-03 — add-sandbox-egress
+
+Added configurable sandbox network isolation (isolated default / egress opt-in) with a dedicated Docker network, curl in the sandbox image, and manual verification against a live bot.
+
+- Time: 20h 33m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 22:31 → 2026-09-03 19:05
+- claude-opus-5: 381 requests, duration n/a, in 762 / out 353 111 (reasoning 116 854) / cache write 950 647 / cache read 82 884 289
+- claude-sonnet-5: 235 requests, duration n/a, in 470 / out 128 784 (reasoning 55 704) / cache write 532 883 / cache read 30 989 278
+- <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 115 840 224 tokens
+- Start: from change file creation time

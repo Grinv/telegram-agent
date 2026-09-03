@@ -5,7 +5,14 @@ import { ToolRegistry } from '../../src/tools/registry.js';
 import type { DockerExecFn, DockerExecResult } from '../../src/sandbox/docker-cli.js';
 import type { Tool } from '../../src/tools/types.js';
 
-const CONFIG = { image: 'telegram-agent-sandbox', timeoutMs: 30000, memoryLimit: '256m', cpuLimit: '0.5' };
+const CONFIG = {
+  image: 'telegram-agent-sandbox',
+  timeoutMs: 30000,
+  memoryLimit: '256m',
+  cpuLimit: '0.5',
+  network: 'isolated' as const,
+  networkName: 'telegram-agent-sandbox-net',
+};
 
 /** A scripted fake dockerExec that records every invocation. */
 function fakeDockerExec(containerId = 'abc123'): {
@@ -22,6 +29,12 @@ function fakeDockerExec(containerId = 'abc123'): {
       return { stdout: 'tool output', stderr: '', exitCode: 0 };
     }
     if (args[0] === 'stop') {
+      return { stdout: '', stderr: '', exitCode: 0 };
+    }
+    if (args[0] === 'network' && args[1] === 'inspect') {
+      return { stdout: '', stderr: '', exitCode: 1 };
+    }
+    if (args[0] === 'network' && args[1] === 'create') {
       return { stdout: '', stderr: '', exitCode: 0 };
     }
     return { stdout: '', stderr: '', exitCode: 0 };
@@ -64,6 +77,60 @@ test('createSandbox runs docker run with read-only, no network, memory, and cpu 
   assert.ok(args.includes(CONFIG.image));
 
   await executor.removeSandbox(containerId);
+});
+
+test('createSandbox with the default (isolated) config spawns the container with --network none', async () => {
+  const { fn, calls } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor(CONFIG, fn);
+
+  const containerId = await executor.createSandbox();
+
+  const runCall = calls.find((c) => c.args[0] === 'run')!;
+  assert.ok(runCall.args.includes('--network'));
+  assert.equal(runCall.args[runCall.args.indexOf('--network') + 1], 'none');
+  assert.ok(!calls.some((c) => c.args[0] === 'network'), 'isolated mode must not touch network provisioning');
+
+  await executor.removeSandbox(containerId);
+});
+
+test('createSandbox with network explicitly set to isolated behaves exactly like the default', async () => {
+  const { fn, calls } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor({ ...CONFIG, network: 'isolated' }, fn);
+
+  const containerId = await executor.createSandbox();
+
+  const runCall = calls.find((c) => c.args[0] === 'run')!;
+  assert.equal(runCall.args[runCall.args.indexOf('--network') + 1], 'none');
+
+  await executor.removeSandbox(containerId);
+});
+
+test('createSandbox in egress mode spawns the container attached to the configured network, ensuring it exists once', async () => {
+  const { fn, calls } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor({ ...CONFIG, network: 'egress' }, fn);
+  const registry = registryWithEchoTool();
+
+  await executor.execute([{ name: 'execute_command', arguments: { command: 'echo hi' } }], registry);
+  await executor.execute([{ name: 'execute_command', arguments: { command: 'echo hi' } }], registry);
+
+  const runCalls = calls.filter((c) => c.args[0] === 'run');
+  for (const runCall of runCalls) {
+    assert.equal(runCall.args[runCall.args.indexOf('--network') + 1], CONFIG.networkName);
+  }
+
+  const networkCreateCalls = calls.filter((c) => c.args[0] === 'network' && c.args[1] === 'create');
+  assert.equal(networkCreateCalls.length, 1, 'network-ensure helper must run exactly once across multiple execute() calls');
+});
+
+test('isolated mode never invokes the network-ensure helper', async () => {
+  const { fn, calls } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor(CONFIG, fn);
+  const registry = registryWithEchoTool();
+
+  await executor.execute([{ name: 'execute_command', arguments: { command: 'echo hi' } }], registry);
+  await executor.execute([{ name: 'execute_command', arguments: { command: 'echo hi' } }], registry);
+
+  assert.ok(!calls.some((c) => c.args[0] === 'network'), 'isolated mode must never provision a network');
 });
 
 test('execute creates a sandbox, runs the tool via docker exec, then tears the sandbox down', async () => {

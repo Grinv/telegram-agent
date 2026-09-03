@@ -1,13 +1,15 @@
 import type { ToolCall, ToolResult } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolContext, ContainerExecResult } from '../tools/types.js';
-import { createDockerExec, type DockerExecFn, type DockerExecResult } from './docker-cli.js';
+import { createDockerExec, ensureNetworkExists, type DockerExecFn, type DockerExecResult } from './docker-cli.js';
 
 export interface SandboxExecutorConfig {
   image: string;
   timeoutMs: number;
   memoryLimit: string;
   cpuLimit: string;
+  network: 'isolated' | 'egress';
+  networkName: string;
 }
 
 /** A tool result annotated with the tool name that produced it. */
@@ -29,6 +31,7 @@ export class DockerSandboxExecutor implements SandboxExecutor {
   private readonly config: SandboxExecutorConfig;
   private readonly extraContext: Partial<ToolContext>;
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  private networkEnsured?: Promise<void>;
 
   /**
    * `extraContext` is merged into every per-call `ToolContext` alongside
@@ -47,10 +50,19 @@ export class DockerSandboxExecutor implements SandboxExecutor {
   }
 
   async createSandbox(): Promise<string> {
+    if (this.config.network === 'egress') {
+      await this.ensureNetwork();
+    }
+
+    const networkArgs =
+      this.config.network === 'egress'
+        ? ['--network', this.config.networkName]
+        : ['--network', 'none'];
+
     const args = [
       'run', '-d', '--rm',
       '--read-only',
-      '--network', 'none',
+      ...networkArgs,
       '--memory', this.config.memoryLimit,
       '--cpus', this.config.cpuLimit,
       '--tmpfs', '/work:rw,size=64m',
@@ -115,6 +127,14 @@ export class DockerSandboxExecutor implements SandboxExecutor {
     } finally {
       await this.removeSandbox(containerId);
     }
+  }
+
+  /** Ensures the egress network exists, memoizing across calls so it is provisioned at most once. */
+  private ensureNetwork(): Promise<void> {
+    if (!this.networkEnsured) {
+      this.networkEnsured = ensureNetworkExists(this.dockerExec, this.config.networkName);
+    }
+    return this.networkEnsured;
   }
 
   private startAutoKillTimer(containerId: string): void {

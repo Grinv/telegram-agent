@@ -82,3 +82,24 @@ export function createDockerExec(execFile: ExecFileFn = nodeExecFile as ExecFile
 
 /** Default `dockerExec` using the real `child_process.execFile`. */
 export const dockerExec: DockerExecFn = createDockerExec();
+
+/**
+ * Ensures the named Docker network exists, creating it if absent.
+ *
+ * Idempotent and race-safe: if two callers race to create the same network,
+ * the loser's "already exists" failure is treated as success rather than an
+ * error, since the desired end state (the network exists) was reached either way.
+ */
+export async function ensureNetworkExists(dockerExec: DockerExecFn, networkName: string): Promise<void> {
+  const inspect = await dockerExec(['network', 'inspect', networkName]);
+  if (inspect.exitCode === 0) {
+    return;
+  }
+
+  const create = await dockerExec(['network', 'create', networkName]);
+  if (create.exitCode === 0 || /already exists/i.test(create.stderr)) {
+    return;
+  }
+
+  throw new Error(`Failed to create sandbox network "${networkName}": ${create.stderr || 'unknown error'}`);
+}
