@@ -8,6 +8,7 @@ import { createSubagentToolRegistry } from './tools/index.js';
 import type { ToolContext } from './tools/index.js';
 import { DockerSandboxExecutor } from './sandbox/sandbox-executor.js';
 import { createStatsRecorder } from './stats/index.js';
+import { createHistoryStore } from './history/index.js';
 import { discoverModels } from './routing/model-discovery.js';
 import { createRouter, selectClassifierAndFallback } from './routing/index.js';
 import { callLlmIsolated } from './llm/inference-caller.js';
@@ -22,6 +23,8 @@ try {
   const statsRecorder = config.statsEnabled
     ? createStatsRecorder(config.statsDbPath, config.statsStorePrompts)
     : undefined;
+
+  const historyStore = createHistoryStore(config.historyDbPath);
 
   const skillLibrary = loadSkills(config.skillsDir);
 
@@ -77,6 +80,7 @@ try {
     timeoutMs: config.llmTimeoutMs,
     sandboxExecutor,
     toolRegistry,
+    historyStore,
     maxIterations: config.toolUseMaxIterations,
     ...(statsRecorder ? { statsRecorder } : {}),
     ...(router ? { router } : {}),

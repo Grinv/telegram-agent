@@ -15,8 +15,24 @@ import type { TelegramMessage, TelegramReplier } from './telegram/client.js';
 import type { Router } from './routing/types.js';
 import type { SkillLibrary } from './skills/types.js';
 import { buildSystemInstruction } from './system-instruction.js';
+import type { HistoryStore, HistoryTurn } from './history/types.js';
 
 const FAILURE_REPLY_TEXT = 'Sorry, I could not process your message right now. Please try again later.';
+const NEW_CONVERSATION_COMMAND = '/new';
+const NEW_CONVERSATION_REPLY_TEXT = "Started a new conversation. I've forgotten everything discussed in this chat so far.";
+
+/** Renders a stored/incoming user turn's display content, prefixed with the sender's name when known. */
+function renderUserContent(content: string, senderName?: string): string {
+  return senderName ? `${senderName}: ${content}` : content;
+}
+
+/** Renders a persisted history turn into the `ChatMessage` shape sent to the LLM. */
+function renderHistoryTurn(turn: HistoryTurn): ChatMessage {
+  if (turn.role === 'assistant') {
+    return { role: 'assistant', content: turn.content };
+  }
+  return { role: 'user', content: renderUserContent(turn.content, turn.senderName) };
+}
 
 /** Dependencies for the think → act → observe loop. */
 export interface LoopDeps {
@@ -79,6 +95,10 @@ export async function runLoop(
     }
 
     if (!result.toolCalls || result.toolCalls.length === 0) {
+      if (result.text.trim().length === 0) {
+        logger.warn('LLM returned an empty response with no tool call', { iteration: i, model });
+        return { ok: false, reason: 'EMPTY_RESPONSE', iterations: i + 1 };
+      }
       return { ok: true, text: result.text, iterations: i + 1 };
     }
 
@@ -131,6 +151,7 @@ export interface OrchestratorDeps {
   sandboxExecutor: SandboxExecutor;
   toolRegistry: ToolRegistry;
   statsRecorder?: StatsRecorder;
+  historyStore: HistoryStore;
   maxIterations: number;
   model?: string;
   /** Overridable for tests; defaults to the real process-isolated inference caller. */
@@ -144,7 +165,8 @@ export interface OrchestratorDeps {
 /**
  * Builds a message handler that runs the think → act → observe loop per
  * message. When no tools are registered, the loop exits on iteration 0
- * (one-shot fallback). No per-chat state is kept between messages.
+ * (one-shot fallback). Each chat's persisted history is loaded before the
+ * request and extended after it, so later messages see prior turns.
  */
 export function createMessageHandler(deps: OrchestratorDeps) {
   const callLlm = deps.callLlm ?? callLlmIsolated;
@@ -155,10 +177,30 @@ export function createMessageHandler(deps: OrchestratorDeps) {
 
     logger.info('Message received', { chatId, prompt });
 
+    if (prompt === NEW_CONVERSATION_COMMAND) {
+      deps.historyStore.clearHistory(chatId);
+      logger.info('History cleared via /new command', { chatId });
+      await deps.client.sendMessage(chatId, NEW_CONVERSATION_REPLY_TEXT);
+      return;
+    }
+
     deps.statsRecorder?.recordMessage({
       chatId,
       prompt,
       receivedAt: Date.now(),
+    });
+
+    const senderId = message.from?.id;
+    const senderName = message.from?.name;
+
+    // Load prior history before persisting this turn, so the just-received
+    // message isn't echoed back into its own request.
+    const history = deps.historyStore.getHistory(chatId);
+    deps.historyStore.appendTurn(chatId, {
+      role: 'user',
+      content: prompt,
+      ...(senderId !== undefined ? { senderId } : {}),
+      ...(senderName !== undefined ? { senderName } : {}),
     });
 
     let deliveryAttempted = false;
@@ -167,7 +209,8 @@ export function createMessageHandler(deps: OrchestratorDeps) {
       const systemInstruction = buildSystemInstruction(deps.skillLibrary);
       const messages: ChatMessage[] = [
         { role: 'system', content: systemInstruction },
-        { role: 'user', content: prompt },
+        ...history.map(renderHistoryTurn),
+        { role: 'user', content: renderUserContent(prompt, senderName) },
       ];
       const tools = deps.toolRegistry.isEmpty() ? [] : deps.toolRegistry.getDefinitions();
 
@@ -213,6 +256,10 @@ export function createMessageHandler(deps: OrchestratorDeps) {
 
       deliveryAttempted = true;
       await deps.client.sendMessage(chatId, reply);
+
+      if (result.ok) {
+        deps.historyStore.appendTurn(chatId, { role: 'assistant', content: result.text });
+      }
 
       deps.statsRecorder?.recordMessage({
         chatId,

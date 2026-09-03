@@ -16,6 +16,7 @@ import {
   resolveStatsDbPath,
   resolveStatsStorePrompts,
   resolveStatsEnabled,
+  resolveHistoryDbPath,
   resolveClassifierModel,
   resolveClassifierTimeoutMs,
   resolveRouterFallbackModel,
@@ -185,6 +186,14 @@ test('resolveStatsDbPath defaults to data/stats.db', () => {
 
 test('resolveStatsDbPath returns the provided value', () => {
   assert.equal(resolveStatsDbPath('/tmp/custom.db'), '/tmp/custom.db');
+});
+
+test('resolveHistoryDbPath defaults to data/history.db', () => {
+  assert.equal(resolveHistoryDbPath(undefined), 'data/history.db');
+});
+
+test('resolveHistoryDbPath returns the provided value', () => {
+  assert.equal(resolveHistoryDbPath('/tmp/custom-history.db'), '/tmp/custom-history.db');
 });
 
 test('resolveStatsStorePrompts defaults to true', () => {

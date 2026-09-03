@@ -16,6 +16,7 @@ export interface AppConfig {
   statsDbPath: string;
   statsStorePrompts: boolean;
   statsEnabled: boolean;
+  historyDbPath: string;
   classifierModel: string;
   classifierTimeoutMs: number;
   routerFallbackModel: string;
@@ -126,6 +127,11 @@ export function resolveStatsDbPath(raw: string | undefined): string {
   return raw ?? 'data/stats.db';
 }
 
+/** Pure: resolves HISTORY_DB_PATH. */
+export function resolveHistoryDbPath(raw: string | undefined): string {
+  return raw ?? 'data/history.db';
+}
+
 /** Pure: parses a "true"/"false" env var (case-insensitive), defaulting when unset. */
 function resolveBoolean(raw: string | undefined, envVarName: string, defaultValue: boolean): boolean {
   if (raw === undefined) return defaultValue;
@@ -216,6 +222,7 @@ export function loadConfig(): AppConfig {
     statsDbPath: resolveStatsDbPath(process.env.STATS_DB_PATH),
     statsStorePrompts: resolveStatsStorePrompts(process.env.STATS_STORE_PROMPTS),
     statsEnabled: resolveStatsEnabled(process.env.STATS_ENABLED),
+    historyDbPath: resolveHistoryDbPath(process.env.HISTORY_DB_PATH),
     classifierModel: resolveClassifierModel(process.env.CLASSIFIER_MODEL),
     classifierTimeoutMs: resolveClassifierTimeoutMs(process.env.CLASSIFIER_TIMEOUT_MS),
     routerFallbackModel: resolveRouterFallbackModel(process.env.ROUTER_FALLBACK_MODEL),

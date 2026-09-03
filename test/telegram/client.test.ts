@@ -64,6 +64,75 @@ test('getUpdates throws when Telegram responds with ok:false', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// add-chat-context-history — sender identity parsing
+// ---------------------------------------------------------------------------
+
+test('getUpdates parses from.id and from.username into message.from', async () => {
+  const fakeFetch = (async () =>
+    jsonResponse({
+      ok: true,
+      result: [
+        {
+          update_id: 1,
+          message: {
+            message_id: 1,
+            chat: { id: 42 },
+            text: 'hi',
+            from: { id: 100, username: 'alice', first_name: 'Alice' },
+          },
+        },
+      ],
+    })) as typeof fetch;
+
+  const client = new TelegramClient('TEST_TOKEN', fakeFetch);
+  const updates = await client.getUpdates(undefined, 30);
+
+  assert.deepEqual(updates[0].message?.from, { id: 100, name: 'alice' });
+});
+
+test('getUpdates falls back to first_name when no username is set', async () => {
+  const fakeFetch = (async () =>
+    jsonResponse({
+      ok: true,
+      result: [
+        {
+          update_id: 1,
+          message: {
+            message_id: 1,
+            chat: { id: 42 },
+            text: 'hi',
+            from: { id: 100, first_name: 'Alice' },
+          },
+        },
+      ],
+    })) as typeof fetch;
+
+  const client = new TelegramClient('TEST_TOKEN', fakeFetch);
+  const updates = await client.getUpdates(undefined, 30);
+
+  assert.deepEqual(updates[0].message?.from, { id: 100, name: 'Alice' });
+});
+
+test('getUpdates does not crash when a message update has no from field', async () => {
+  const fakeFetch = (async () =>
+    jsonResponse({
+      ok: true,
+      result: [
+        {
+          update_id: 1,
+          message: { message_id: 1, chat: { id: 42 }, text: 'hi' },
+        },
+      ],
+    })) as typeof fetch;
+
+  const client = new TelegramClient('TEST_TOKEN', fakeFetch);
+  const updates = await client.getUpdates(undefined, 30);
+
+  assert.equal(updates[0].message?.from, undefined);
+  assert.equal(updates[0].message?.text, 'hi');
+});
+
+// ---------------------------------------------------------------------------
 // fix-telegram-message-limit — splitMessageForDelivery
 // ---------------------------------------------------------------------------
 

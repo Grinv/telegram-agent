@@ -2,11 +2,52 @@ export interface TelegramMessage {
   message_id: number;
   chat: { id: number };
   text?: string;
+  from?: { id: number; name: string };
+}
+
+interface TelegramApiFrom {
+  id: number;
+  username?: string;
+  first_name: string;
+}
+
+interface TelegramApiMessage {
+  message_id: number;
+  chat: { id: number };
+  text?: string;
+  from?: TelegramApiFrom;
 }
 
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
+}
+
+interface TelegramApiUpdate {
+  update_id: number;
+  message?: TelegramApiMessage;
+}
+
+function parseFrom(from: TelegramApiFrom | undefined): TelegramMessage['from'] {
+  if (!from) return undefined;
+  return { id: from.id, name: from.username ?? from.first_name };
+}
+
+function parseUpdate(update: TelegramApiUpdate): TelegramUpdate {
+  if (!update.message) {
+    return { update_id: update.update_id };
+  }
+
+  const { message_id, chat, text, from } = update.message;
+  return {
+    update_id: update.update_id,
+    message: {
+      message_id,
+      chat,
+      ...(text !== undefined ? { text } : {}),
+      ...(from ? { from: parseFrom(from) } : {}),
+    },
+  };
 }
 
 interface TelegramApiResponse<T> {
@@ -106,12 +147,12 @@ export class TelegramClient implements TelegramReplier {
       throw new Error(`getUpdates failed with HTTP ${response.status}`);
     }
 
-    const body = (await response.json()) as TelegramApiResponse<TelegramUpdate[]>;
+    const body = (await response.json()) as TelegramApiResponse<TelegramApiUpdate[]>;
     if (!body.ok) {
       throw new Error(`getUpdates returned an error: ${body.description ?? 'unknown error'}`);
     }
 
-    return body.result;
+    return body.result.map(parseUpdate);
   }
 
   async sendMessage(chatId: number, text: string): Promise<void> {

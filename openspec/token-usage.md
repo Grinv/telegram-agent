@@ -67,6 +67,17 @@ Added dynamic Ollama model discovery, LLM-based classifier routing with auto-sel
 - Total: 172 756 997 tokens
 - Start: from change file creation time
 
+## 2026-09-02 — add-parallel-subagents
+
+Added spawn_subagent/spawn_subagents tools that run nested think -> act -> observe loops, each with its own sandbox, in batches of MAX_SUBAGENTS; synced the sandbox-execution spec and added the new subagents capability. Backfilled after the fact — `finish` was never run at archive time.
+
+- Time: 3h 19m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 18:52 → 2026-09-02 22:11
+- claude-sonnet-5: 481 requests, duration n/a, in 962 / out 294 971 (reasoning 103 708) / cache write 952 349 / cache read 110 113 753
+- claude-opus-5: 25 requests, duration n/a, in 50 / out 8 080 (reasoning 1 683) / cache write 94 329 / cache read 1 657 668
+- <synthetic>: 2 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 113 122 162 tokens
+- Start: specified manually
+
 ## 2026-09-03 — add-microvm-isolation (+ fix-ollama-message-mapping)
 
 Ran the agent inside a Docker Sandboxes microVM: default-deny egress, three granted host directories, two granted host ports, and the Telegram token held by a host-side broker because sbx substitutes secrets into headers while Telegram authenticates by URL path. Verifying the live tool-call path exposed a second defect and pulled fix-ollama-message-mapping into the same session: the Ollama connector sent tool definitions flat, so every tool call came back with an empty name and the act step was never reached in any deployment. One combined entry covers both changes — they were implemented in one unsplittable window, and two entries would double-count the shared tokens.
@@ -117,4 +128,24 @@ Added undici as a scoped dependency to raise fetch's dispatcher timeouts in the 
 - Time: 27m 45s total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-03 22:38 → 2026-09-03 23:06
 - claude-sonnet-5: 99 requests, duration n/a, in 198 / out 49 618 (reasoning 15 057) / cache write 187 504 / cache read 22 265 329
 - Total: 22 502 649 tokens
+- Start: from change file creation time
+
+## 2026-09-04 — add-chat-context-history
+
+Persist per-chat conversation history in SQLite (sender-attributed turns, /new to reset), thread it into the LLM request, expose Telegram sender identity, and verify end-to-end on a live bot deployment.
+
+- Time: 27h 51m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 20:20 → 2026-09-04 00:11
+- claude-sonnet-5: 1 042 requests, duration n/a, in 2 084 / out 575 116 (reasoning 232 933) / cache write 1 995 825 / cache read 201 263 896
+- claude-opus-5: 433 requests, duration n/a, in 866 / out 413 268 (reasoning 144 248) / cache write 1 102 119 / cache read 88 165 651
+- <synthetic>: 3 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 293 518 825 tokens
+- Start: from change file creation time
+
+## 2026-09-04 — fix-empty-llm-response
+
+Classify an empty (or whitespace-only) LLM response with no tool call as a loop failure (EMPTY_RESPONSE) instead of sending an empty Telegram message; verified with unit tests and a live qwen3:1.7b/Ollama reproduction.
+
+- Time: 29m 12s total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-04 00:05 → 2026-09-04 00:35
+- claude-sonnet-5: 110 requests, duration n/a, in 220 / out 49 205 (reasoning 12 545) / cache write 193 758 / cache read 18 351 404
+- Total: 18 594 587 tokens
 - Start: from change file creation time

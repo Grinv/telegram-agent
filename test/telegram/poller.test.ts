@@ -26,3 +26,12 @@ test('skips an update with no message at all (e.g. an edited_message)', () => {
 
   assert.equal(extractTextMessage(update), undefined);
 });
+
+test('does not crash on a text message update with no from field', () => {
+  const update: TelegramUpdate = {
+    update_id: 4,
+    message: { message_id: 4, chat: { id: 1 }, text: 'hi' },
+  };
+
+  assert.deepEqual(extractTextMessage(update), update.message);
+});
