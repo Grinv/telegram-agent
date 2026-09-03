@@ -7,6 +7,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/app/data
+      - ./skills:/app/skills:ro
     depends_on:
       - ollama
     networks:

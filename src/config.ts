@@ -21,6 +21,7 @@ export interface AppConfig {
   routerFallbackModel: string;
   maxSubagents: number;
   maxSubIterations: number;
+  skillsDir: string;
 }
 
 export class ConfigError extends Error {}
@@ -187,6 +188,11 @@ export function resolveMaxSubIterations(raw: string | undefined): number {
   return value;
 }
 
+/** Pure: resolves SKILLS_DIR, the directory authored skill files are loaded from at startup. */
+export function resolveSkillsDir(raw: string | undefined): string {
+  return raw ?? 'skills';
+}
+
 export function loadConfig(): AppConfig {
   try {
     process.loadEnvFile();
@@ -215,5 +221,6 @@ export function loadConfig(): AppConfig {
     routerFallbackModel: resolveRouterFallbackModel(process.env.ROUTER_FALLBACK_MODEL),
     maxSubagents: resolveMaxSubagents(process.env.MAX_SUBAGENTS),
     maxSubIterations: resolveMaxSubIterations(process.env.MAX_SUB_ITERATIONS),
+    skillsDir: resolveSkillsDir(process.env.SKILLS_DIR),
   };
 }

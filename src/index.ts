@@ -11,6 +11,7 @@ import { createStatsRecorder } from './stats/index.js';
 import { discoverModels } from './routing/model-discovery.js';
 import { createRouter, selectClassifierAndFallback } from './routing/index.js';
 import { callLlmIsolated } from './llm/inference-caller.js';
+import { loadSkills } from './skills/index.js';
 
 registerGlobalErrorHandlers();
 
@@ -21,6 +22,8 @@ try {
   const statsRecorder = config.statsEnabled
     ? createStatsRecorder(config.statsDbPath, config.statsStorePrompts)
     : undefined;
+
+  const skillLibrary = loadSkills(config.skillsDir);
 
   const discoveredModels = await discoverModels(config.ollamaBaseUrl, fetch);
   const router =
@@ -46,6 +49,7 @@ try {
     ...(router ? { router } : {}),
     maxSubagents: config.maxSubagents,
     maxSubIterations: config.maxSubIterations,
+    skillLibrary,
   };
 
   const toolRegistry = createSubagentToolRegistry({ execInContainer: async () => {
@@ -76,6 +80,7 @@ try {
     maxIterations: config.toolUseMaxIterations,
     ...(statsRecorder ? { statsRecorder } : {}),
     ...(router ? { router } : {}),
+    skillLibrary,
   });
 
   logger.info('Bot starting', {
@@ -84,6 +89,7 @@ try {
     sandboxNetwork: config.sandboxNetwork,
     maxIterations: config.toolUseMaxIterations,
     statsEnabled: config.statsEnabled,
+    skillsLoaded: skillLibrary.list().length,
   });
 
   logger.info('Model discovery complete', {

@@ -466,6 +466,59 @@ test('loop works normally (no errors) when statsRecorder is undefined', async ()
 });
 
 // ---------------------------------------------------------------------------
+// add-agent-skills — system instruction on every request
+// ---------------------------------------------------------------------------
+
+test('the first request of a message carries the system instruction ahead of the user turn', async () => {
+  const { fn: callLlm, calls } = scriptedCallLlm([{ ok: true, text: 'answer' }]);
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm }),
+    client,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  assert.equal(calls[0].messages?.[0].role, 'system');
+  assert.equal(calls[0].messages?.[1].role, 'user');
+});
+
+test('a follow-up request after a tool call also carries the system instruction', async () => {
+  const { fn: callLlm, calls } = scriptedCallLlm([
+    { ok: true, text: '', toolCalls: [{ name: 'execute_command', arguments: { command: 'echo hi' } }] },
+    { ok: true, text: 'done' },
+  ]);
+  const executor = fakeSandboxExecutor([{ name: 'execute_command', ok: true, output: 'hi' }]);
+  const { registry } = registryWithTools();
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm, toolRegistry: registry, sandboxExecutor: executor }),
+    client,
+  });
+
+  await handleMessage(fakeMessage('run echo hi'));
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].messages?.[0].role, 'system');
+});
+
+test('the reply sent to the chat contains no part of the system instruction', async () => {
+  const { fn: callLlm, calls } = scriptedCallLlm([{ ok: true, text: 'the answer' }]);
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm }),
+    client,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+
+  const systemContent = calls[0].messages?.[0].content ?? '';
+  assert.ok(systemContent.length > 0, 'expected a non-empty system instruction to compare against');
+  assert.equal(client.sent[0].text, 'the answer');
+  assert.ok(!client.sent[0].text.includes(systemContent), 'reply must not contain the system instruction text');
+});
+
+// ---------------------------------------------------------------------------
 // 11.7 — runLoop callable directly
 // ---------------------------------------------------------------------------
 

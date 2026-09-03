@@ -45,7 +45,12 @@ export interface ToolMessage {
   name: string;
 }
 
-export type ChatMessage = UserMessage | AssistantMessage | ToolMessage;
+export interface SystemMessage {
+  role: 'system';
+  content: string;
+}
+
+export type ChatMessage = UserMessage | AssistantMessage | ToolMessage | SystemMessage;
 
 /**
  * Request carried across the connector contract. `prompt` is always present

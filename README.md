@@ -103,6 +103,7 @@ Uses Node's built-in test runner (`node:test`) and `node:assert`, so there's no 
   - `inference-runner.ts`: entrypoint executed inside a forked child process; loads a connector and calls it.
   - `inference-caller.ts`: forks `inference-runner`, sends the request over IPC, and enforces a timeout that kills the child if it hangs.
 - `src/llms/<provider>/`: one directory per connector implementation. `stub` returns placeholder text and never requests tools; `ollama` calls Ollama's `/api/chat` endpoint and supports native tool calling.
+- `src/skills/`: agent skills — reusable instruction sets the model can request. `index.ts`'s `loadSkills(dir)` loads `*.md` files from a configured directory at startup; each skill file has front matter (`name`, `description`) and a body. The skill index (names and descriptions only) is advertised to the model on every request, and the `read_skill` tool lets the model fetch a skill's full body on demand. See [Agent Skills](#agent-skills).
 - `src/tools/`: the tool interface and registry. `types.ts` defines `Tool` (`{ name, description, parameters, execute }`) and `ToolContext` (the sandbox-execution environment passed to every tool — `execInContainer`, plus optional `callLlm`/`runLoop`/`toolRegistry`/`sandboxExecutor`/`router`/`statsRecorder`/`maxSubagents`/`maxSubIterations` for tools that start nested loops); `registry.ts` is a `ToolRegistry` that the orchestrator queries for LLM-facing tool definitions and dispatches calls to by name (`without(names)` returns a copy excluding given tools). `execute-command.ts`, `read-file.ts`, `write-file.ts`, `list-files.ts` are the four built-in tools; `spawn-subagent.ts`/`spawn-subagents.ts` add parallel sub-agent tools (see [Parallel Subagents](#parallel-subagents)). `index.ts` exports `createDefaultToolRegistry()` (the four built-ins) and `createSubagentToolRegistry(context)` (built-ins plus the spawn tools, when `context` has what they need).
 - `src/sandbox/`: Docker-backed tool execution. `docker-cli.ts` wraps `child_process.execFile('docker', ...)` with timeout, `AbortSignal`, and stdin support. `sandbox-executor.ts`'s `DockerSandboxExecutor` spawns an ephemeral, read-only container per act step — with no network access by default, or attached to a dedicated egress network per `SANDBOX_NETWORK` (see [Sandbox network modes](#sandbox-network-modes)) — runs the requested tool calls sequentially inside it via `docker exec`, and tears it down in a `finally` block (with an auto-kill timer as a backstop). Its constructor takes an optional `extraContext` object that's merged into every per-call `ToolContext` alongside `execInContainer` — this is how `callLlm`/`runLoop`/etc. reach `spawn_subagent`.
 - `src/orchestrator.ts`: runs a think → act → observe loop per message. `runLoop()` sends the conversation + available tool definitions to the LLM; if the LLM requests tool calls, they're executed in a fresh sandbox and the results are fed back, repeating until a final text answer or `TOOL_USE_MAX_ITERATIONS` is reached. `createMessageHandler()` wires this to a Telegram message and reply; when no tools are registered, the loop exits after the first LLM call — the same one-shot behavior as before tool-use existed. No state is kept between messages.
@@ -153,6 +154,33 @@ For a task with independent sub-parts (e.g. "summarize these 3 files"), the LLM 
 **These are just tools.** `spawn_subagent`/`spawn_subagents` are registered in the `ToolRegistry` like any other tool (`execute_command`, `read_file`, ...) — the orchestrator itself is not modified and has no special knowledge of subagents. The parent LLM decides whether to use them on any given think → act → observe iteration, exactly as it decides to use any other tool.
 
 **Observability.** Every sub-agent LLM call is recorded in stats with `role="subagent"` (alongside `"main"` for the top-level loop and `"classifier"` for routing decisions — see [Model Routing](#model-routing) and [Statistics](#statistics)), so the stats report's per-role token breakdown shows sub-agent token spend separately from the parent conversation. Sub-agent tool calls are recorded under the parent message's `message_id`, so total cost per message includes everything its sub-agents did.
+
+## Agent Skills
+
+Skills are authored instruction sets that extend what the LLM can do without writing code. Each skill is a Markdown file with structured front matter and a body containing detailed step-by-step guidance.
+
+**Format.** A skill file starts with `---` on the first line, followed by front matter with two required fields (`name` and `description`), then `---` again, and finally the body:
+
+```markdown
+---
+name: weather
+description: Look up current weather conditions for a city using the wttr.in service.
+---
+This skill fetches current weather conditions from wttr.in, a free plain-text weather service...
+```
+
+The `name` must be unique across all loaded skills. Names are used when the model requests a skill via the `read_skill` tool.
+
+**Discovery and loading.** Skills are loaded once at startup from the `SKILLS_DIR` directory (default `skills`, configurable via the `SKILLS_DIR` environment variable). The bot reads every `*.md` file directly in that directory (non-recursive), parses its front matter, and makes them available. Skills cannot be created, edited, or deleted while the bot is running — a human edits the files in `skills/` and restarts the bot for changes to take effect.
+
+**Advertised to every message.** On each incoming message, the model receives the complete skill index (every loaded skill's `name` and `description`, formatted as a simple list) in the system instruction. This index helps the model know what skills are available and when to use them, without spending context tokens on the full body of every skill.
+
+**On-demand fetching.** When the model wants to use a skill, it calls the `read_skill` tool with the skill's exact name. This returns the skill's full body — the instructions that guide execution. Skill bodies are never sent preemptively; they're fetched only when a specific message needs them. This keeps context usage low and focused.
+
+**Shipped skills.** Two example skills are included:
+
+- **`weather`** — fetches current weather conditions for a location using `curl` and the wttr.in service. Returns formatted conditions (temperature, "feels like", humidity, wind) in a single line that can be read directly into a reply.
+- **`morning-briefing`** — a multi-step routine that combines the current date/time, weather conditions, and a joke into one coherent morning briefing message. Demonstrates how to compose multiple tool calls (shell commands and external API calls) and synthesize their results into a natural-language response.
 
 ## Statistics
 

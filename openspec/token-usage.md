@@ -98,3 +98,23 @@ Added configurable sandbox network isolation (isolated default / egress opt-in) 
 - <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
 - Total: 115 840 224 tokens
 - Start: from change file creation time
+
+## 2026-09-03 — add-agent-skills
+
+Added an agent-skills capability: Markdown skill files loaded at startup, advertised as a name/description index in a new system message on every request, retrieved on demand via a read_skill tool; shipped weather and morning-briefing skills, verified end-to-end against a live Ollama model.
+
+- Time: 24h 22m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 22:35 → 2026-09-03 22:57
+- claude-opus-5: 373 requests, duration n/a, in 746 / out 339 313 (reasoning 112 542) / cache write 936 558 / cache read 81 547 081
+- claude-sonnet-5: 622 requests, duration n/a, in 1 244 / out 317 604 (reasoning 134 423) / cache write 1 015 685 / cache read 133 156 276
+- <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 217 314 507 tokens
+- Start: from change file creation time
+
+## 2026-09-03 — fix-ollama-fetch-timeout
+
+Added undici as a scoped dependency to raise fetch's dispatcher timeouts in the inference-runner child process, fixing the silent ~300s cap on LLM_TIMEOUT_MS; synced the llm-inference spec with the new effective-timeout guarantee.
+
+- Time: 27m 45s total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-03 22:38 → 2026-09-03 23:06
+- claude-sonnet-5: 99 requests, duration n/a, in 198 / out 49 618 (reasoning 15 057) / cache write 187 504 / cache read 22 265 329
+- Total: 22 502 649 tokens
+- Start: from change file creation time

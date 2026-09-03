@@ -313,6 +313,52 @@ test('omits think from the request body when request.think is unset', async () =
   assert.equal('think' in body, false);
 });
 
+test('a leading system message is sent to Ollama as a distinct system-role wire message (task 2.3)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'a1' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'q1' },
+  ];
+
+  await connector.callLlm({ prompt: 'q1', messages });
+
+  const body = bodies[0] as { messages: Array<{ role: string; content?: string }> };
+  assert.equal(body.messages.length, 2);
+  assert.equal(body.messages[0].role, 'system');
+  assert.equal(body.messages[0].content, 'You are a helpful assistant.');
+  assert.equal(body.messages[1].role, 'user');
+  assert.equal(body.messages[1].content, 'q1');
+  assert.notEqual(body.messages[0].role, body.messages[1].role);
+});
+
+test('a request with no system message produces the same wire payload as before (task 2.4)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'final answer' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'list files' },
+    { role: 'assistant', content: 'I will use a tool', tool_calls: [{ name: 'execute_command', arguments: { command: 'ls' } }] },
+    { role: 'tool', content: 'file1.txt\nfile2.txt', name: 'execute_command' },
+  ];
+
+  await connector.callLlm({ prompt: 'list files', messages });
+
+  const body = bodies[0] as { messages: Array<{ role: string; content?: string }> };
+  assert.equal(body.messages.length, 3);
+  assert.equal(body.messages.some((m) => m.role === 'system'), false);
+  assert.equal(body.messages[0].role, 'user');
+  assert.equal(body.messages[0].content, 'list files');
+  assert.equal(body.messages[1].role, 'assistant');
+  assert.equal(body.messages[2].role, 'tool');
+  assert.equal(body.messages[2].content, 'file1.txt\nfile2.txt');
+});
+
 test('default base URL is http://ollama:11434 (Docker network hostname)', async () => {
   const original = process.env.OLLAMA_BASE_URL;
   delete process.env.OLLAMA_BASE_URL;

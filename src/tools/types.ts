@@ -4,6 +4,7 @@ import type { ToolRegistry } from './registry.js';
 import type { runLoop } from '../orchestrator.js';
 import type { Router } from '../routing/types.js';
 import type { StatsRecorder } from '../stats/types.js';
+import type { SkillLibrary } from '../skills/types.js';
 
 /**
  * Result of running a command inside the sandbox container. Returned by
@@ -42,6 +43,8 @@ export interface ToolContext {
   statsRecorder?: StatsRecorder;
   maxSubIterations?: number;
   maxSubagents?: number;
+  /** Authored skills loaded at startup; backs `read_skill`. See `src/skills/`. */
+  skillLibrary?: SkillLibrary;
 }
 
 /**

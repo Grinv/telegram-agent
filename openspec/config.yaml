@@ -75,3 +75,11 @@ operations:
         Each module should be testable in isolation - no cross-module imports
         for core logic, dependencies injected rather than hardcoded.
       - Cover new logic with tests as you implement it, not as an afterthought.
+      - >-
+        Prefer delegating tasks to subagents rather than doing the work
+        inline, to keep the main context small. Pass each subagent only the
+        context it needs for its task (relevant file paths, the task
+        description, acceptance criteria) - not the full proposal/design/
+        conversation history. Pick the subagent's model to match task
+        complexity: a stronger model for tasks requiring design judgment or
+        tricky logic, a cheaper/faster model for mechanical or simple tasks.

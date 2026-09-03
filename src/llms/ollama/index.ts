@@ -151,6 +151,8 @@ export class OllamaConnector extends BaseConnector {
         // via `strings` on the ollama binary), and a live /api/chat call with
         // tool_name on a tool-role message was accepted and used by the model.
         return { role: 'tool', content: msg.content, tool_name: msg.name };
+      case 'system':
+        return { role: 'system', content: msg.content };
     }
   }
 

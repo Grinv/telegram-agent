@@ -21,6 +21,7 @@ import {
   resolveRouterFallbackModel,
   resolveMaxSubagents,
   resolveMaxSubIterations,
+  resolveSkillsDir,
   ConfigError,
 } from '../src/config.js';
 
@@ -275,4 +276,14 @@ test('resolveMaxSubIterations throws ConfigError for non-positive or non-integer
   assert.throws(() => resolveMaxSubIterations('-1'), ConfigError);
   assert.throws(() => resolveMaxSubIterations('abc'), ConfigError);
   assert.throws(() => resolveMaxSubIterations('1.5'), ConfigError);
+});
+
+// --- Skills config resolver ---
+
+test('resolveSkillsDir defaults to "skills"', () => {
+  assert.equal(resolveSkillsDir(undefined), 'skills');
+});
+
+test('resolveSkillsDir returns the provided value', () => {
+  assert.equal(resolveSkillsDir('custom-skills-dir'), 'custom-skills-dir');
 });
