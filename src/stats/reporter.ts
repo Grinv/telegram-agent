@@ -19,8 +19,8 @@ interface RoleBreakdownRow {
 interface LatencyRow {
   model: string;
   avg_ms: number;
-  'MIN(latency_ms)': number;
-  'MAX(latency_ms)': number;
+  'MIN(latency)': number;
+  'MAX(latency)': number;
 }
 
 interface SuccessRateRow {
@@ -49,21 +49,21 @@ export class StatsReporter {
       const modelTotals = db
         .prepare(
           `SELECT model,
-                  SUM(prompt_tokens) AS input_tokens,
-                  SUM(completion_tokens) AS output_tokens,
-                  SUM(prompt_tokens + completion_tokens) AS total_tokens,
+                  SUM(input_tokens) AS input_tokens,
+                  SUM(output_tokens) AS output_tokens,
+                  SUM(input_tokens + output_tokens) AS total_tokens,
                   COUNT(*) AS calls
            FROM llm_calls GROUP BY model ORDER BY total_tokens DESC`
         )
         .all() as unknown as ModelTotalsRow[];
 
       const roleBreakdown = db
-        .prepare(`SELECT role, SUM(prompt_tokens + completion_tokens) AS tokens FROM llm_calls GROUP BY role`)
+        .prepare(`SELECT role, SUM(input_tokens + output_tokens) AS tokens FROM llm_calls GROUP BY role`)
         .all() as unknown as RoleBreakdownRow[];
 
       const latencyByModel = db
         .prepare(
-          `SELECT model, AVG(latency_ms) AS avg_ms, MIN(latency_ms), MAX(latency_ms)
+          `SELECT model, AVG(latency) AS avg_ms, MIN(latency), MAX(latency)
            FROM llm_calls GROUP BY model`
         )
         .all() as unknown as LatencyRow[];
@@ -77,7 +77,7 @@ export class StatsReporter {
 
       const toolUsage = db
         .prepare(
-          `SELECT tool_name, COUNT(*) AS calls, SUM(ok) AS succeeded, AVG(latency_ms) AS avg_ms
+          `SELECT tool_name, COUNT(*) AS calls, SUM(ok) AS succeeded, AVG(duration) AS avg_ms
            FROM tool_calls GROUP BY tool_name`
         )
         .all() as unknown as ToolUsageRow[];
@@ -125,8 +125,8 @@ function renderReport(data: {
   sections.push('| Model | Avg (ms) | Min (ms) | Max (ms) |');
   sections.push('| --- | --- | --- | --- |');
   for (const row of data.latencyByModel) {
-    const min = row['MIN(latency_ms)'];
-    const max = row['MAX(latency_ms)'];
+    const min = row['MIN(latency)'];
+    const max = row['MAX(latency)'];
     sections.push(`| ${row.model} | ${Math.round(row.avg_ms)} | ${min} | ${max} |`);
   }
   sections.push('');

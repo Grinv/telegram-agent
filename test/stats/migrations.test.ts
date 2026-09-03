@@ -22,7 +22,7 @@ test('migrates a fresh database from version 0 to the latest version, creating a
 
     migrate(db);
 
-    assert.equal(userVersion(db), 1);
+    assert.equal(userVersion(db), 3);
     for (const table of ['messages', 'llm_calls', 'tool_calls']) {
       const row = db
         .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
@@ -38,10 +38,10 @@ test('is a no-op when the database is already at the latest version', () => {
   const db = new DatabaseSync(tmpDbPath());
   try {
     migrate(db);
-    assert.equal(userVersion(db), 1);
+    assert.equal(userVersion(db), 3);
 
     assert.doesNotThrow(() => migrate(db));
-    assert.equal(userVersion(db), 1);
+    assert.equal(userVersion(db), 3);
   } finally {
     db.close();
   }
@@ -58,13 +58,13 @@ test('preserves existing rows when a new migration is appended', () => {
     );
 
     const fixtureMigration: Migration = {
-      version: 2,
+      version: 4,
       up: (database) => database.exec('ALTER TABLE messages ADD COLUMN test_col TEXT'),
     };
 
     migrate(db, [...MIGRATIONS, fixtureMigration]);
 
-    assert.equal(userVersion(db), 2);
+    assert.equal(userVersion(db), 4);
 
     const message = db.prepare('SELECT * FROM messages').get() as Record<string, unknown>;
     assert.equal(message.chat_id, 42);
@@ -77,14 +77,121 @@ test('preserves existing rows when a new migration is appended', () => {
   }
 });
 
+test('a fresh database ends at the latest version with every renamed and added column present', () => {
+  const db = new DatabaseSync(tmpDbPath());
+  try {
+    migrate(db);
+    assert.equal(userVersion(db), 3);
+
+    const llmColumns = (db.prepare('PRAGMA table_info(llm_calls)').all() as Array<{ name: string }>).map(
+      (c) => c.name
+    );
+    for (const column of [
+      'input_tokens',
+      'output_tokens',
+      'turn_number',
+      'latency',
+      'timestamp',
+      'agent_id',
+      'cached_tokens',
+      'reasoning_tokens',
+      'usage_detail_reported',
+      'estimated_cost',
+      'priced',
+      'instruction_tokens',
+      'user_request_tokens',
+      'conversation_tokens',
+      'tool_output_tokens',
+      'repeated_input_tokens',
+      'new_input_tokens',
+    ]) {
+      assert.ok(llmColumns.includes(column), `expected llm_calls to have column ${column}`);
+    }
+    for (const column of ['prompt_tokens', 'completion_tokens', 'call_index', 'latency_ms']) {
+      assert.ok(!llmColumns.includes(column), `expected llm_calls to no longer have column ${column}`);
+    }
+
+    const toolColumns = (db.prepare('PRAGMA table_info(tool_calls)').all() as Array<{ name: string }>).map(
+      (c) => c.name
+    );
+    for (const column of ['output_size', 'duration', 'input_size', 'output_tokens']) {
+      assert.ok(toolColumns.includes(column), `expected tool_calls to have column ${column}`);
+    }
+    for (const column of ['result_len', 'latency_ms']) {
+      assert.ok(!toolColumns.includes(column), `expected tool_calls to no longer have column ${column}`);
+    }
+  } finally {
+    db.close();
+  }
+});
+
+test('a database migrated from version 1 with existing rows retains them under the renamed columns', () => {
+  const db = new DatabaseSync(tmpDbPath());
+  try {
+    migrate(db, [MIGRATIONS[0]]);
+    assert.equal(userVersion(db), 1);
+
+    db.exec(
+      `INSERT INTO messages (timestamp, chat_id, prompt_text, total_ms, iterations, tool_calls, ok, reason)
+       VALUES ('2024-01-01T00:00:00.000Z', 42, 'hello', 100, 1, 1, 1, NULL)`
+    );
+    const messageId = Number(
+      (db.prepare('SELECT id FROM messages').get() as { id: number }).id
+    );
+    db.prepare(
+      `INSERT INTO llm_calls (message_id, call_index, role, model, prompt_tokens, completion_tokens, latency_ms, ok)
+       VALUES (?, 0, 'main', 'llama3', 12, 4, 250, 1)`
+    ).run(messageId);
+    const llmCallId = Number(
+      (db.prepare('SELECT id FROM llm_calls').get() as { id: number }).id
+    );
+    db.prepare(
+      `INSERT INTO tool_calls (message_id, llm_call_id, tool_name, args_json, latency_ms, ok, result_len)
+       VALUES (?, ?, 'echo', '{}', 30, 1, 2)`
+    ).run(messageId, llmCallId);
+
+    migrate(db);
+    assert.equal(userVersion(db), 3);
+
+    const llmCall = db.prepare('SELECT * FROM llm_calls').get() as Record<string, unknown>;
+    assert.equal(llmCall.input_tokens, 12);
+    assert.equal(llmCall.output_tokens, 4);
+    assert.equal(llmCall.turn_number, 0);
+    assert.equal(llmCall.latency, 250);
+
+    const toolCall = db.prepare('SELECT * FROM tool_calls').get() as Record<string, unknown>;
+    assert.equal(toolCall.output_size, 2);
+    assert.equal(toolCall.duration, 30);
+  } finally {
+    db.close();
+  }
+});
+
+test('migrating an already-current database is a no-op and does not duplicate columns', () => {
+  const db = new DatabaseSync(tmpDbPath());
+  try {
+    migrate(db);
+    assert.equal(userVersion(db), 3);
+
+    assert.doesNotThrow(() => migrate(db));
+    assert.equal(userVersion(db), 3);
+
+    const llmColumns = db.prepare('PRAGMA table_info(llm_calls)').all() as Array<{ name: string }>;
+    const names = llmColumns.map((c) => c.name);
+    assert.equal(names.length, new Set(names).size, 'expected no duplicate columns');
+  } finally {
+    db.close();
+  }
+});
+
 test('rolls back cleanly when a migration throws, leaving the version and schema unchanged', () => {
   const db = new DatabaseSync(tmpDbPath());
   try {
     migrate(db);
-    assert.equal(userVersion(db), 1);
+    assert.equal(userVersion(db), 3);
 
     const failingMigration: Migration = {
-      version: 2,
+      version: 4,
       up: (database) => {
         database.exec('ALTER TABLE messages ADD COLUMN test_col TEXT');
         throw new Error('boom');
@@ -93,7 +200,7 @@ test('rolls back cleanly when a migration throws, leaving the version and schema
 
     assert.throws(() => migrate(db, [...MIGRATIONS, failingMigration]), /boom/);
 
-    assert.equal(userVersion(db), 1);
+    assert.equal(userVersion(db), 3);
     const columns = db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>;
     assert.ok(!columns.some((column) => column.name === 'test_col'));
   } finally {

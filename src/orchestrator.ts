@@ -4,10 +4,13 @@ import type {
   ChatMessage,
   LlmRequest,
   LlmResult,
+  TokenUsage,
   ToolCall,
   ToolDefinition,
 } from './llm/types.js';
 import type { StatsRecorder } from './stats/types.js';
+import { categorizeInputTokens, type ContextCategoryTokens } from './stats/context-categories.js';
+import { measureRepeatedInput, type RepeatedInputTokens } from './stats/repeated-input.js';
 import type { SandboxExecutor } from './sandbox/sandbox-executor.js';
 import type { ToolRegistry } from './tools/registry.js';
 import { logger } from './logger.js';
@@ -46,6 +49,12 @@ export interface LoopDeps {
   model?: string;
   /** Who is running this loop: "main" (default), "classifier", or "subagent". Passed through to stats. */
   role?: 'main' | 'classifier' | 'subagent';
+  /**
+   * Identity of the specific agent running this loop (e.g. "subagent-2"),
+   * distinguishing it from other concurrent agents sharing the same `role`.
+   * Passed through to stats; defaults to `role` (or "main") when omitted.
+   */
+  agentId?: string;
 }
 
 export type LoopResult = { ok: true; text: string; iterations: number } | { ok: false; reason: string; iterations: number };
@@ -65,7 +74,15 @@ export async function runLoop(
   tools: ToolDefinition[],
   deps: LoopDeps,
 ): Promise<LoopResult> {
-  const { callLlm, provider, timeoutMs, sandboxExecutor, toolRegistry, statsRecorder, maxIterations, model, role } = deps;
+  const { callLlm, provider, timeoutMs, sandboxExecutor, toolRegistry, statsRecorder, maxIterations, model, role, agentId } = deps;
+
+  // Tracks the message list as it was sent on the previous iteration of
+  // *this* loop invocation, so repeated-input can be measured against it.
+  // `undefined` on the first iteration - a task's first call has nothing
+  // earlier to repeat. Scoped to this function call, not shared across
+  // sibling loops (e.g. concurrent sub-agents), matching "repetition is
+  // measured per task".
+  let previousMessages: ChatMessage[] | undefined;
 
   for (let i = 0; i < maxIterations; i++) {
     const request: LlmRequest = {
@@ -75,18 +92,30 @@ export async function runLoop(
       ...(model ? { model } : {}),
     };
 
+    const requestMessages = [...messages];
     const startedAt = Date.now();
     const result = await callLlm(request, { provider, timeoutMs });
     const durationMs = Date.now() - startedAt;
 
+    const { categoryTokens, repeatedInput } = measureContextStats(
+      requestMessages,
+      previousMessages,
+      result.ok ? result.usage : undefined,
+    );
+    previousMessages = requestMessages;
+
     statsRecorder?.recordLlmCall({
       iteration: i,
       ...(role ? { role } : {}),
+      ...(agentId ? { agentId } : {}),
       ...(model ? { model } : {}),
       ok: result.ok,
       ...(result.ok ? { text: result.text, ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}) } : {}),
       ...(result.ok && result.usage ? { usage: result.usage } : {}),
       durationMs,
+      calledAt: startedAt,
+      ...(categoryTokens ? { categoryTokens } : {}),
+      ...(repeatedInput ? { repeatedInput } : {}),
     });
 
     if (!result.ok) {
@@ -102,12 +131,15 @@ export async function runLoop(
       return { ok: true, text: result.text, iterations: i + 1 };
     }
 
+    const toolCallStartedAt = Date.now();
     const observations = await sandboxExecutor.execute(result.toolCalls, toolRegistry);
+    const toolCallDurationMs = Date.now() - toolCallStartedAt;
 
     statsRecorder?.recordToolCall({
       iteration: i,
       toolCalls: result.toolCalls,
       results: observations,
+      durationMs: toolCallDurationMs,
     });
 
     logger.info('Tool call executed', {
@@ -133,6 +165,41 @@ export async function runLoop(
 
   logger.warn('Max iterations reached', { maxIterations });
   return { ok: false, reason: 'MAX_ITERATIONS', iterations: maxIterations };
+}
+
+/**
+ * Computes category attribution and repeated-input measurement for one LLM
+ * call, never throwing: these are observability extras, not part of the
+ * loop's actual behavior, so a bug in either computation must not fail the
+ * message being handled (see design.md — Risks, "Measurement changes what
+ * is measured"). A failure is logged and that call's fields are simply
+ * omitted from the recorded row, mirroring how `SqliteStatsRecorder`
+ * already swallows and logs its own write errors.
+ */
+function measureContextStats(
+  requestMessages: ChatMessage[],
+  previousMessages: ChatMessage[] | undefined,
+  usage: TokenUsage | undefined,
+): { categoryTokens?: ContextCategoryTokens; repeatedInput?: RepeatedInputTokens } {
+  let categoryTokens: ContextCategoryTokens | undefined;
+  try {
+    if (usage) categoryTokens = categorizeInputTokens(requestMessages, usage.promptTokens);
+  } catch (error) {
+    logger.warn('Stats: context-category attribution failed, omitting it for this call', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  let repeatedInput: RepeatedInputTokens | undefined;
+  try {
+    repeatedInput = measureRepeatedInput(requestMessages, previousMessages);
+  } catch (error) {
+    logger.warn('Stats: repeated-input measurement failed, omitting it for this call', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return { categoryTokens, repeatedInput };
 }
 
 function extractLatestUserText(messages: ChatMessage[]): string {
@@ -227,6 +294,7 @@ export function createMessageHandler(deps: OrchestratorDeps) {
           model: decision.classifierModel,
           ok: decision.source === 'classifier',
           durationMs: routeDurationMs,
+          calledAt: routeStartedAt,
           ...(decision.classifierUsage ? { usage: decision.classifierUsage } : {}),
         });
 

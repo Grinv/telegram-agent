@@ -33,7 +33,11 @@ export const spawnSubagentsTool: Tool = {
     for (let i = 0; i < tasks.length; i += maxConcurrent) {
       const batch = tasks.slice(i, i + maxConcurrent);
       const batchResults = await Promise.all(
-        batch.map((task) => spawnSubagentTool.execute(context, { task, ...(model ? { model } : {}) })),
+        batch.map((task, j) =>
+          // agentId is index-based across the whole call (not just this
+          // batch) so ids stay distinct even across successive batches.
+          spawnSubagentTool.execute(context, { task, agentId: `subagent-${i + j}`, ...(model ? { model } : {}) }),
+        ),
       );
       results.push(...batchResults.map((r) => (r.ok ? (r.output ?? '') : `[failed: ${r.error}]`)));
     }

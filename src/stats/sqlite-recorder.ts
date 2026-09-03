@@ -3,6 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { logger } from '../logger.js';
 import { migrate } from './migrations.js';
+import { computeCost, isPriced, type PriceTable } from './pricing.js';
+import { estimateTokens } from './token-estimate.js';
 import type { LlmCallStats, MessageStats, StatsRecorder, ToolCallStats } from './types.js';
 
 interface PendingMessage {
@@ -24,6 +26,7 @@ interface PendingMessage {
  */
 export class SqliteStatsRecorder implements StatsRecorder {
   private readonly storePrompts: boolean;
+  private readonly priceTable: PriceTable;
   private db?: DatabaseSync;
   private insertMessageStmt?: StatementSync;
   private updateMessageStmt?: StatementSync;
@@ -34,8 +37,9 @@ export class SqliteStatsRecorder implements StatsRecorder {
   private currentPending?: PendingMessage;
   private lastLlmCallId?: number;
 
-  constructor(dbPath: string, storePrompts: boolean) {
+  constructor(dbPath: string, storePrompts: boolean, priceTable: PriceTable = {}) {
     this.storePrompts = storePrompts;
+    this.priceTable = priceTable;
 
     try {
       mkdirSync(dirname(dbPath), { recursive: true });
@@ -52,12 +56,17 @@ export class SqliteStatsRecorder implements StatsRecorder {
          WHERE id = ?`
       );
       this.insertLlmCallStmt = db.prepare(
-        `INSERT INTO llm_calls (message_id, call_index, role, model, prompt_tokens, completion_tokens, latency_ms, ok)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO llm_calls (
+           message_id, turn_number, role, agent_id, model, input_tokens, output_tokens, latency, ok,
+           timestamp, cached_tokens, reasoning_tokens, usage_detail_reported, estimated_cost, priced,
+           instruction_tokens, user_request_tokens, conversation_tokens, tool_output_tokens,
+           repeated_input_tokens, new_input_tokens
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       this.insertToolCallStmt = db.prepare(
-        `INSERT INTO tool_calls (message_id, llm_call_id, tool_name, args_json, latency_ms, ok, result_len)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tool_calls (message_id, llm_call_id, tool_name, args_json, duration, ok, output_size, input_size, output_tokens)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
     } catch (error) {
       logger.warn('Stats: failed to open database, stats recording disabled', {
@@ -131,15 +140,37 @@ export class SqliteStatsRecorder implements StatsRecorder {
   private insertLlmCallRow(stats: LlmCallStats): void {
     if (!this.insertLlmCallStmt || !this.currentPending) return;
 
+    const model = stats.model ?? 'unknown';
+    const inputTokens = stats.usage?.promptTokens ?? 0;
+    const outputTokens = stats.usage?.completionTokens ?? 0;
+    const usageDetailReported = stats.usage?.cachedTokens !== undefined || stats.usage?.reasoningTokens !== undefined;
+    const priced = isPriced(model, this.priceTable);
+    const cost = computeCost({ inputTokens, outputTokens }, this.priceTable[model]);
+    const category = stats.categoryTokens;
+    const repeated = stats.repeatedInput;
+
     const result = this.insertLlmCallStmt.run(
       this.currentPending.id,
       stats.iteration,
       stats.role ?? 'main',
-      stats.model ?? 'unknown',
-      stats.usage?.promptTokens ?? 0,
-      stats.usage?.completionTokens ?? 0,
+      stats.agentId ?? stats.role ?? 'main',
+      model,
+      inputTokens,
+      outputTokens,
       stats.durationMs ?? 0,
-      stats.ok ? 1 : 0
+      stats.ok ? 1 : 0,
+      stats.calledAt !== undefined ? new Date(stats.calledAt).toISOString() : null,
+      stats.usage?.cachedTokens ?? 0,
+      stats.usage?.reasoningTokens ?? 0,
+      usageDetailReported ? 1 : 0,
+      cost,
+      priced ? 1 : 0,
+      category?.instructionTokens ?? 0,
+      category?.userRequestTokens ?? 0,
+      category?.conversationTokens ?? 0,
+      category?.toolOutputTokens ?? 0,
+      repeated?.repeatedTokens ?? 0,
+      repeated?.newTokens ?? 0
     );
 
     this.lastLlmCallId = Number(result.lastInsertRowid);
@@ -148,21 +179,24 @@ export class SqliteStatsRecorder implements StatsRecorder {
   private insertToolCallRow(stats: ToolCallStats): void {
     if (!this.insertToolCallStmt || !this.currentPending) return;
 
-    const latencyMs = stats.durationMs ?? 0;
+    const durationMs = stats.durationMs ?? 0;
     for (let i = 0; i < stats.toolCalls.length; i++) {
       const call = stats.toolCalls[i];
       const toolResult = stats.results[i];
       const ok = toolResult?.ok ?? false;
-      const resultLen = ok ? (toolResult?.output?.length ?? 0) : (toolResult?.error?.length ?? 0);
+      const outputText = ok ? (toolResult?.output ?? '') : (toolResult?.error ?? '');
+      const argsJson = JSON.stringify(call.arguments);
 
       this.insertToolCallStmt.run(
         this.currentPending.id,
         this.lastLlmCallId ?? null,
         call.name,
-        JSON.stringify(call.arguments),
-        latencyMs,
+        argsJson,
+        durationMs,
         ok ? 1 : 0,
-        resultLen
+        outputText.length,
+        argsJson.length,
+        estimateTokens(outputText)
       );
       this.currentPending.toolCallCount += 1;
     }

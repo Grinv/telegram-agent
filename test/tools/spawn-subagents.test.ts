@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSubagentsTool } from '../../src/tools/spawn-subagents.js';
+import { runLoop } from '../../src/orchestrator.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import type { ToolContext } from '../../src/tools/types.js';
 import type { LoopDeps, LoopResult } from '../../src/orchestrator.js';
 import type { ChatMessage, LlmRequest, LlmResult, ToolDefinition } from '../../src/llm/types.js';
 import type { SandboxExecutor } from '../../src/sandbox/sandbox-executor.js';
+import type { StatsRecorder } from '../../src/stats/types.js';
 
 function registryWithTools(names: string[]): ToolRegistry {
   const registry = new ToolRegistry();
@@ -110,6 +112,28 @@ test('spawn_subagents processes 7 tasks in batches of 3 (no more than 3 in fligh
   assert.equal(result.ok, true);
   const parsed = JSON.parse((result as { ok: true; output: string }).output);
   assert.equal(parsed.length, 7);
+});
+
+test('spawn_subagents gives each of three concurrent sub-agents a distinct agentId, all attributable to the same task', async () => {
+  const llmCallStats: Array<{ role?: string; agentId?: string }> = [];
+  const statsRecorder: StatsRecorder = {
+    recordMessage: () => {},
+    recordLlmCall: (stats) => llmCallStats.push(stats),
+    recordToolCall: () => {},
+  };
+  const context = baseContext({ runLoop, statsRecorder, maxSubagents: 3 });
+
+  await spawnSubagentsTool.execute(context, { tasks: ['a', 'b', 'c'] });
+
+  assert.equal(llmCallStats.length, 3);
+  const agentIds = llmCallStats.map((s) => s.agentId);
+  assert.equal(new Set(agentIds).size, 3, 'expected 3 distinct agent identities');
+  for (const stats of llmCallStats) {
+    assert.equal(stats.role, 'subagent');
+  }
+  // "Attributable to the same task" is the recorder's job (it attributes
+  // every call it receives to the currently-pending message); here we only
+  // assert that all three calls reached the one shared statsRecorder.
 });
 
 test('spawn_subagents notes an individual sub-agent failure without failing the whole call', async () => {

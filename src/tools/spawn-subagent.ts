@@ -27,6 +27,12 @@ export const spawnSubagentTool: Tool = {
       return { ok: false, error: 'spawn_subagent requires a string "task" argument' };
     }
     const model = typeof args.model === 'string' ? args.model : undefined;
+    // Not part of the LLM-facing schema: set only by `spawn_subagents` to
+    // give each concurrently-running sub-agent a distinct stats identity
+    // (see design.md — `agent_id` distinguishes sub-agents that `role`
+    // cannot). A lone `spawn_subagent` call has no sibling to be confused
+    // with, so it defaults to the shared "subagent" identity.
+    const agentId = typeof args.agentId === 'string' ? args.agentId : 'subagent';
 
     if (
       !context.runLoop ||
@@ -56,6 +62,7 @@ export const spawnSubagentTool: Tool = {
       maxIterations: context.maxSubIterations ?? 3,
       ...(model ? { model } : {}),
       role: 'subagent',
+      agentId,
     });
 
     return result.ok ? { ok: true, output: result.text } : { ok: false, error: result.reason };

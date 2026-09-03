@@ -7,7 +7,7 @@ import { createMessageHandler, runLoop } from './orchestrator.js';
 import { createSubagentToolRegistry } from './tools/index.js';
 import type { ToolContext } from './tools/index.js';
 import { DockerSandboxExecutor } from './sandbox/sandbox-executor.js';
-import { createStatsRecorder } from './stats/index.js';
+import { createStatsRecorder, loadPriceTable } from './stats/index.js';
 import { createHistoryStore } from './history/index.js';
 import { discoverModels } from './routing/model-discovery.js';
 import { createRouter, selectClassifierAndFallback } from './routing/index.js';
@@ -21,7 +21,7 @@ try {
   const client = new TelegramClient(config.telegramBotToken, fetch, config.telegramApiBaseUrl);
 
   const statsRecorder = config.statsEnabled
-    ? createStatsRecorder(config.statsDbPath, config.statsStorePrompts)
+    ? createStatsRecorder(config.statsDbPath, config.statsStorePrompts, loadPriceTable(config.priceTablePath))
     : undefined;
 
   const historyStore = createHistoryStore(config.historyDbPath);

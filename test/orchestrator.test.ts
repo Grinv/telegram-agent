@@ -1,11 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createMessageHandler, runLoop } from '../src/orchestrator.js';
 import { logger } from '../src/logger.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { DockerSandboxExecutor } from '../src/sandbox/sandbox-executor.js';
 import type { SandboxExecutor, ToolObservation } from '../src/sandbox/sandbox-executor.js';
 import type { DockerExecFn } from '../src/sandbox/docker-cli.js';
+import { SqliteStatsRecorder } from '../src/stats/sqlite-recorder.js';
 import type { StatsRecorder } from '../src/stats/types.js';
 import type { LlmRequest, LlmResult, ToolDefinition } from '../src/llm/types.js';
 import type { TelegramMessage } from '../src/telegram/client.js';
@@ -73,6 +78,11 @@ function fakeHistoryStore(): HistoryStore & { turnsByChat: Map<number, HistoryTu
       turnsByChat.delete(chatId);
     },
   };
+}
+
+function tmpDbPath(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'orchestrator-stats-test-'));
+  return join(dir, 'stats.db');
 }
 
 /** An empty tool registry (one-shot path). */
@@ -821,6 +831,100 @@ test('runLoop passes role: "subagent" through to statsRecorder.recordLlmCall', a
   assert.equal(llmCallStats[0].role, 'subagent');
 });
 
+test('a message is still handled and replied to even when context-category and repeated-input measurement throw', async () => {
+  // A message whose `content` getter throws whenever read - both
+  // `categorizeInputTokens` and `measureRepeatedInput` read every message's
+  // content, so this forces both computations to throw on every call.
+  const poisoned: ChatMessage = {
+    role: 'system',
+    get content(): string {
+      throw new Error('simulated content-read failure');
+    },
+  };
+
+  const { fn: callLlm } = scriptedCallLlm([
+    {
+      ok: true,
+      text: '',
+      toolCalls: [{ name: 'execute_command', arguments: { command: 'go' } }],
+      usage: { promptTokens: 3, completionTokens: 1 },
+    },
+    { ok: true, text: 'final answer', usage: { promptTokens: 5, completionTokens: 2 } },
+  ]);
+  const executor = fakeSandboxExecutor([{ name: 'execute_command', ok: true, output: 'ran' }]);
+  const { registry } = registryWithTools();
+
+  const llmCallStats: Array<{ categoryTokens?: unknown; repeatedInput?: unknown }> = [];
+  const statsRecorder: StatsRecorder = {
+    recordMessage: () => {},
+    recordLlmCall: (stats) => llmCallStats.push(stats),
+    recordToolCall: () => {},
+  };
+
+  const result = await runLoop([poisoned, { role: 'user', content: 'do it' }], registry.getDefinitions(), {
+    callLlm,
+    provider: 'stub',
+    timeoutMs: 1000,
+    sandboxExecutor: executor,
+    toolRegistry: registry,
+    maxIterations: 5,
+    statsRecorder,
+  });
+
+  assert.deepEqual(result, { ok: true, text: 'final answer', iterations: 2 });
+  assert.equal(llmCallStats.length, 2, 'both calls were still recorded');
+  for (const stats of llmCallStats) {
+    assert.equal(stats.categoryTokens, undefined, 'category attribution is omitted, not fabricated, when it throws');
+    assert.equal(stats.repeatedInput, undefined, 'repeated-input measurement is omitted, not fabricated, when it throws');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Tool-call duration
+// ---------------------------------------------------------------------------
+
+test('recorded tool-call durations differ for a materially slower call, and neither is zero', async () => {
+  const { registry } = registryWithTools();
+  const toolCallStats: Array<{ durationMs?: number }> = [];
+  const statsRecorder: StatsRecorder = {
+    recordMessage: () => {},
+    recordLlmCall: () => {},
+    recordToolCall: (stats) => toolCallStats.push(stats),
+  };
+
+  const { fn: callLlm } = scriptedCallLlm([
+    { ok: true, text: '', toolCalls: [{ name: 'execute_command', arguments: { command: 'fast' } }] },
+    { ok: true, text: '', toolCalls: [{ name: 'execute_command', arguments: { command: 'slow' } }] },
+    { ok: true, text: 'done' },
+  ]);
+
+  let execCount = 0;
+  const executor: SandboxExecutor = {
+    async execute(toolCalls) {
+      execCount++;
+      await new Promise((resolve) => setTimeout(resolve, execCount === 1 ? 5 : 60));
+      return toolCalls.map((tc) => ({ name: tc.name, ok: true, output: 'result' }));
+    },
+  };
+
+  await runLoop([{ role: 'user', content: 'run two tools' }], registry.getDefinitions(), {
+    callLlm,
+    provider: 'stub',
+    timeoutMs: 5000,
+    sandboxExecutor: executor,
+    toolRegistry: registry,
+    maxIterations: 5,
+    statsRecorder,
+  });
+
+  assert.equal(toolCallStats.length, 2);
+  const [first, second] = toolCallStats;
+  assert.ok((first.durationMs ?? 0) > 0, 'first tool call duration must not be zero');
+  assert.ok((second.durationMs ?? 0) > 0, 'second tool call duration must not be zero');
+  assert.notEqual(first.durationMs, second.durationMs, 'durations must differ for materially different execution times');
+  assert.ok((second.durationMs ?? 0) > (first.durationMs ?? 0), 'the slower call must record the larger duration');
+});
+
 // ---------------------------------------------------------------------------
 // fix-unknown-tool-call-handling — unregistered tool name does not abort the loop
 // ---------------------------------------------------------------------------
@@ -1023,6 +1127,37 @@ test('classifier stats entry records the measured latency of router.route()', as
   assert.ok(classifierStat, 'expected a recordLlmCall with role="classifier"');
   assert.equal(typeof classifierStat!.durationMs, 'number');
   assert.ok(classifierStat!.durationMs! >= ROUTE_DELAY_MS, `expected durationMs >= ${ROUTE_DELAY_MS}, got ${classifierStat!.durationMs}`);
+});
+
+test('a routed message records different agent identities for the classifier call and the main loop call', async () => {
+  const { fn: callLlm } = scriptedCallLlm([{ ok: true, text: 'answer' }]);
+  const { router } = fakeRouter({ model: 'llama3.1:8b', source: 'classifier', classifierModel: 'qwen2.5:0.5b' });
+
+  // Agent-identity resolution (defaulting agent_id from role) happens inside
+  // the recorder, not in the raw stats payload - so this asserts against the
+  // persisted rows, matching how the requirement is actually observable.
+  const dbPath = tmpDbPath();
+  const statsRecorder = new SqliteStatsRecorder(dbPath, true);
+
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm, statsRecorder }),
+    client,
+    router,
+  });
+
+  await handleMessage(fakeMessage('hi'));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const db = new DatabaseSync(dbPath);
+  const rows = db.prepare('SELECT role, agent_id FROM llm_calls').all() as Array<{ role: string; agent_id: string }>;
+  db.close();
+
+  assert.equal(rows.length, 2);
+  const classifierRow = rows.find((r) => r.role === 'classifier');
+  const mainRow = rows.find((r) => r.role !== 'classifier');
+  assert.ok(classifierRow && mainRow, 'expected one classifier call and one main-loop call');
+  assert.notEqual(classifierRow!.agent_id, mainRow!.agent_id);
 });
 
 // ---------------------------------------------------------------------------

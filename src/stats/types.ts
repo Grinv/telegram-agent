@@ -1,4 +1,6 @@
 import type { ToolCall, ToolResult, TokenUsage } from '../llm/types.js';
+import type { ContextCategoryTokens } from './context-categories.js';
+import type { RepeatedInputTokens } from './repeated-input.js';
 
 /**
  * Stats emitted at message-received and reply-sent hook points. Fields are
@@ -22,12 +24,25 @@ export interface LlmCallStats {
   iteration: number;
   /** Who made this call: "main" (the loop's think step, the default), "classifier" (model routing), or "subagent" (a spawned sub-agent loop). */
   role?: 'main' | 'classifier' | 'subagent';
+  /**
+   * Identity of the specific agent that made this call - distinguishes
+   * concurrent sub-agents from each other, unlike `role` which only says
+   * *what kind* of agent. Defaults to `role` (or "main" when `role` is also
+   * absent) when omitted.
+   */
+  agentId?: string;
   model?: string;
   ok: boolean;
   text?: string;
   toolCalls?: ToolCall[];
   usage?: TokenUsage;
   durationMs?: number;
+  /** Time the call was made (ms since epoch, `Date.now()`). Omitted only for calls made before this field existed. */
+  calledAt?: number;
+  /** Per-content-category share of this call's input tokens. See `src/stats/context-categories.ts`. */
+  categoryTokens?: ContextCategoryTokens;
+  /** How much of this call's input was already sent earlier in the same task, vs new. See `src/stats/repeated-input.ts`. */
+  repeatedInput?: RepeatedInputTokens;
 }
 
 /** Stats emitted after executing all tool calls for one loop iteration. */

@@ -149,3 +149,14 @@ Classify an empty (or whitespace-only) LLM response with no tool call as a loop 
 - claude-sonnet-5: 110 requests, duration n/a, in 220 / out 49 205 (reasoning 12 545) / cache write 193 758 / cache read 18 351 404
 - Total: 18 594 587 tokens
 - Start: from change file creation time
+
+## 2026-09-04 — extend-observability-instrumentation
+
+Extended agent-stats instrumentation with real tool-call durations/sizes, per-call agent identity, estimated cost, content-category attribution, and repeated-input measurement, plus a schema migration and live verification against a real Telegram message.
+
+- Time: 25h 26m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 23:46 → 2026-09-04 01:13
+- claude-sonnet-5: 1 182 requests, duration n/a, in 2 364 / out 636 163 (reasoning 260 529) / cache write 2 018 018 / cache read 231 477 617
+- claude-opus-5: 293 requests, duration n/a, in 586 / out 243 709 (reasoning 77 420) / cache write 824 059 / cache read 62 464 336
+- <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 297 666 852 tokens
+- Start: from change file creation time

@@ -16,6 +16,7 @@ export interface AppConfig {
   statsDbPath: string;
   statsStorePrompts: boolean;
   statsEnabled: boolean;
+  priceTablePath: string;
   historyDbPath: string;
   classifierModel: string;
   classifierTimeoutMs: number;
@@ -151,6 +152,15 @@ export function resolveStatsEnabled(raw: string | undefined): boolean {
   return resolveBoolean(raw, 'STATS_ENABLED', true);
 }
 
+/**
+ * Pure: resolves PRICE_TABLE_PATH, the JSON file mapping model name to
+ * per-million-token price used to estimate LLM call cost. A missing file
+ * means every model is recorded as unpriced (see `src/stats/pricing.ts`).
+ */
+export function resolvePriceTablePath(raw: string | undefined): string {
+  return raw ?? 'prices.json';
+}
+
 /** Pure: resolves CLASSIFIER_MODEL (empty = auto-select the smallest discovered model). */
 export function resolveClassifierModel(raw: string | undefined): string {
   return raw ?? '';
@@ -222,6 +232,7 @@ export function loadConfig(): AppConfig {
     statsDbPath: resolveStatsDbPath(process.env.STATS_DB_PATH),
     statsStorePrompts: resolveStatsStorePrompts(process.env.STATS_STORE_PROMPTS),
     statsEnabled: resolveStatsEnabled(process.env.STATS_ENABLED),
+    priceTablePath: resolvePriceTablePath(process.env.PRICE_TABLE_PATH),
     historyDbPath: resolveHistoryDbPath(process.env.HISTORY_DB_PATH),
     classifierModel: resolveClassifierModel(process.env.CLASSIFIER_MODEL),
     classifierTimeoutMs: resolveClassifierTimeoutMs(process.env.CLASSIFIER_TIMEOUT_MS),

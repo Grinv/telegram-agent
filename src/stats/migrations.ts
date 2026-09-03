@@ -11,6 +11,40 @@ export interface Migration {
 
 export const MIGRATIONS: Migration[] = [
   { version: 1, up: (db) => db.exec(readFileSync(SCHEMA_V1_PATH, 'utf8')) },
+  {
+    version: 2,
+    up: (db) =>
+      db.exec(`
+        ALTER TABLE llm_calls RENAME COLUMN prompt_tokens TO input_tokens;
+        ALTER TABLE llm_calls RENAME COLUMN completion_tokens TO output_tokens;
+        ALTER TABLE llm_calls RENAME COLUMN call_index TO turn_number;
+        ALTER TABLE llm_calls RENAME COLUMN latency_ms TO latency;
+        ALTER TABLE llm_calls ADD COLUMN timestamp TEXT;
+        ALTER TABLE llm_calls ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'main';
+        ALTER TABLE llm_calls ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN usage_detail_reported INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN estimated_cost REAL NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN priced INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE tool_calls RENAME COLUMN result_len TO output_size;
+        ALTER TABLE tool_calls RENAME COLUMN latency_ms TO duration;
+        ALTER TABLE tool_calls ADD COLUMN input_size INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE tool_calls ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0;
+      `),
+  },
+  {
+    version: 3,
+    up: (db) =>
+      db.exec(`
+        ALTER TABLE llm_calls ADD COLUMN instruction_tokens INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN user_request_tokens INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN conversation_tokens INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN tool_output_tokens INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN repeated_input_tokens INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN new_input_tokens INTEGER NOT NULL DEFAULT 0;
+      `),
+  },
 ];
 
 /**

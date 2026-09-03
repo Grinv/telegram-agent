@@ -21,10 +21,17 @@ export interface ToolResult {
   error?: string;
 }
 
-/** Token-usage metadata reported by the provider when available. */
+/**
+ * Token-usage metadata reported by the provider when available. `cachedTokens`
+ * and `reasoningTokens` are omitted entirely (not `0`) when the provider does
+ * not report them, so a recorder can distinguish "reported as zero" from
+ * "never reported" rather than treating an absent count as an observed zero.
+ */
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
   totalDurationMs?: number;
 }
 
