@@ -171,3 +171,14 @@ Implemented three read-only stats dashboard views (summary, timeline, analysis) 
 - <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
 - Total: 314 191 097 tokens
 - Start: from change file creation time
+
+## 2026-09-04 — add-agent-benchmark
+
+Implemented the agent benchmark (fixed task set, repeatable runner, snapshots, comparison, sampling controls in llm-inference) and recorded/verified the baseline against qwen2.5 via a Docker Compose service.
+
+- Time: 29h 12m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 23:51 → 2026-09-04 05:03
+- claude-sonnet-5: 1 524 requests, duration n/a, in 3 048 / out 956 560 (reasoning 430 203) / cache write 2 939 807 / cache read 315 917 512
+- claude-opus-5: 283 requests, duration n/a, in 566 / out 227 362 (reasoning 76 420) / cache write 806 151 / cache read 59 397 145
+- <synthetic>: 2 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 380 248 151 tokens
+- Start: from change file creation time

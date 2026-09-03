@@ -76,6 +76,12 @@ export class OllamaConnector extends BaseConnector {
       if (request.think !== undefined) {
         body.think = request.think;
       }
+      if (request.sampling) {
+        const options: Record<string, unknown> = {};
+        if (request.sampling.temperature !== undefined) options.temperature = request.sampling.temperature;
+        if (request.sampling.seed !== undefined) options.seed = request.sampling.seed;
+        if (Object.keys(options).length > 0) body.options = options;
+      }
 
       const response = await this.fetchImpl(`${this.baseUrl}/api/chat`, {
         method: 'POST',

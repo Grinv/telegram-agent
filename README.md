@@ -74,7 +74,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for a full runbook (getting started, what run
    npm run docker:down   # stop and remove both containers
    ```
 
-`docker:up` refuses to start if the sandbox image hasn't been built yet, pointing you back to `npm run sandbox:build`.
+`docker:up` refuses to start if the sandbox image hasn't been built yet, pointing you back to `npm run sandbox:build`. To run the [benchmark](#benchmark) against this deployment, see its Compose-specific instructions there — Ollama isn't reachable from the host in this setup.
 
 There's also an **isolated deployment**, where the bot itself (not just its tool sandboxes) runs inside a hardware-isolated microVM managed by Docker Sandboxes (`sbx`), reachable from the host through nothing but two explicit port grants and a token-holding broker process. It's optional and requires macOS on Apple Silicon; see [DEPLOYMENT.md](DEPLOYMENT.md#isolated-deployment-microvm-boundary) for setup and the full rationale.
 
@@ -99,7 +99,7 @@ Uses Node's built-in test runner (`node:test`) and `node:assert`, so there's no 
 
 - `src/telegram/`: dependency-free Telegram Bot API client (`client.ts`, raw `fetch` calls) and the long-polling loop (`poller.ts`).
 - `src/llm/`: the connector plugin contract.
-  - `base-connector.ts`: abstract `BaseConnector` class with one method, `callLlm(request: LlmRequest): Promise<LlmResult>`. `LlmRequest` carries the prompt plus optional conversation history, tool definitions, and a model override; `LlmResult` carries the reply text plus optional tool calls and token usage.
+  - `base-connector.ts`: abstract `BaseConnector` class with one method, `callLlm(request: LlmRequest): Promise<LlmResult>`. `LlmRequest` carries the prompt plus optional conversation history, tool definitions, a model override, and optional sampling controls (temperature/seed) for reproducible generation, used by the [benchmark](#benchmark) — absent by default, leaving ordinary requests untouched; `LlmResult` carries the reply text plus optional tool calls and token usage.
   - `connector-registry.ts`: resolves a provider name (`LLM_PROVIDER`) to a connector instance.
   - `inference-runner.ts`: entrypoint executed inside a forked child process; loads a connector and calls it.
   - `inference-caller.ts`: forks `inference-runner`, sends the request over IPC, and enforces a timeout that kills the child if it hangs.
@@ -111,6 +111,7 @@ Uses Node's built-in test runner (`node:test`) and `node:assert`, so there's no 
 - `src/logger.ts` / `src/error-handlers.ts`: colorized console logging and top-level exception/rejection capture.
 - `src/stats/`: `SqliteStatsRecorder` implements the orchestrator's `StatsRecorder` hook using `node:sqlite`, writing to `data/stats.db` (gitignored). `reporter.ts`'s `StatsReporter` queries that database and renders the aggregate Markdown report (`reporter-cli.ts`, `npm run stats:report`) plus three dashboard views built on the read-only queries in `dashboard-queries.ts` and rendered by `dashboard-views.ts`: summary (`summary-cli.ts`), timeline (`timeline-cli.ts`), and analysis (`analysis-cli.ts`). See [Statistics](#statistics).
 - `src/routing/`: dynamic model discovery and classifier-based routing. See [Model Routing](#model-routing).
+- `benchmark/`: a fixed set of tasks run against the real agent to measure tokens/cost/turns/tool-calls and correctness, independent of `src/`. See [Benchmark](#benchmark).
 
 Each inference call runs in its own child process (see `inference-caller.ts`), so a connector that hangs, crashes, or throws can never block or take down the bot process. The parent kills the child on timeout and reports a typed failure instead. Tool execution has an analogous isolation boundary one level down: each act step runs in its own disposable Docker container, so a tool call can never touch the bot's own filesystem, network, or process.
 
@@ -216,6 +217,49 @@ All three, like the report above, run against an empty database without failing.
 The database schema is versioned via SQLite's `PRAGMA user_version`. Both the recorder and the reporter run `migrate()` (`src/stats/migrations.ts`) on every open, applying any pending migrations in order and preserving existing rows — there's no need to delete `data/stats.db` when the schema changes. To change the schema, append a new `{ version: N, up: (db) => ... }` entry to the `MIGRATIONS` array in `src/stats/migrations.ts` (an `ALTER TABLE`, an additional `CREATE TABLE`, etc.) rather than editing `schema.sql` in place; each pending migration runs exactly once, inside its own transaction, which rolls back if the migration throws.
 
 For live dashboards instead of static reports, point Grafana's [SQLite datasource plugin](https://grafana.com/grafana/plugins/frser-sqlite-datasource/) at `data/stats.db` directly — this is optional and not set up by default.
+
+## Benchmark
+
+Statistics (above) tell you what the agent *did* cost. The benchmark (`benchmark/`, see [benchmark/README.md](benchmark/README.md)) exists to answer a different question: when a change is meant to *reduce* token consumption, did it actually fall, and did the agent's answers get worse in the process? "The run didn't error" is not the same claim as "the answer was right" — an optimization that truncates tool output aggressively can keep completing runs while quietly answering wrong, and that would look free by the statistics above.
+
+**The task set.** `benchmark/tasks.ts` defines a fixed set of tasks, each a message (or, for the multi-turn task, a short sequence of messages) plus a mechanical correctness check — never a model's judgement, so the check itself can't drift between runs. The set spans the ways tokens get spent: a no-tools factual question, a shell command, reading a file, a skill (`benchmark/skills/word-count.md`, a benchmark-only skill kept separate from the bot's real `skills/`), sub-agent decomposition, and a multi-turn exchange that relies on conversation history. **The set is frozen once a baseline snapshot exists** — see [benchmark/README.md](benchmark/README.md) for why, and don't edit `benchmark/tasks.ts` or `benchmark/skills/word-count.md` after that point.
+
+**Running it.** Requires a real LLM provider reachable the same way the bot itself reaches one (e.g. Ollama with a tool-capable model pulled) and Docker for the tool-use sandbox — it is not run in CI and does not participate in `npm test`.
+
+For local, non-Docker development (`OLLAMA_BASE_URL=http://127.0.0.1:11434`, see [Running](#running)):
+
+```bash
+npm run benchmark:run -- <label>               # runs the task set, saves data/benchmark-snapshots/<label>.json
+npm run benchmark:compare -- <before> <after>  # compares two labelled snapshots
+```
+
+For a [Docker deployment](#docker-deployment), Ollama is only reachable on the internal `bot-net` network, not from the host — run the benchmark as its own Compose service instead, which joins that network and shares `.env` and `./data` with the bot the same way it does:
+
+```bash
+npm run benchmark:docker:build                          # builds the benchmark image (rebuild after benchmark/ or src/ changes)
+npm run benchmark:docker:run -- <label>                  # runs the task set inside bot-net
+docker compose run --rm benchmark node --import tsx benchmark/compare-cli.ts <before> <after>
+```
+
+The `benchmark` service (`docker-compose.yml`) is gated behind the `benchmark` [Compose profile](https://docs.docker.com/compose/how-tos/profiles/), so plain `docker compose up`/`down` never builds or starts it.
+
+Every task runs `BENCHMARK_REPETITIONS` times (default `3`) — a single run of a non-deterministic system is an anecdote, so correctness is reported over repetitions. Each run pins a single model (`BENCHMARK_MODEL`, default `OLLAMA_MODEL` or `llama3`) with routing disabled, requests deterministic sampling from the provider (`BENCHMARK_TEMPERATURE` default `0`, `BENCHMARK_SEED` default `42` — this narrows variance, it does not guarantee determinism, which is why repetitions exist regardless), and gives every task a fresh, empty conversation history so no task inherits another's context. Benchmark activity is recorded to its own SQLite database (`BENCHMARK_STATS_DB_PATH`, default `data/benchmark-stats.db`), never the one real usage writes to (`STATS_DB_PATH`) — this is also where each execution's tokens, cost, turns and tool calls are read back from after it runs, including whatever its sub-agents did (the orchestrator already attributes sub-agent activity to the same message — see [Parallel Subagents](#parallel-subagents)).
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `BENCHMARK_MODEL` | `OLLAMA_MODEL` or `llama3` | The single model every task in the run is pinned to. |
+| `BENCHMARK_REPETITIONS` | `3` | How many times each task is run within one benchmark run. |
+| `BENCHMARK_TEMPERATURE` | `0` | Sampling temperature requested from the provider for every call in the run. |
+| `BENCHMARK_SEED` | `42` | Sampling seed requested from the provider for every call in the run. |
+| `BENCHMARK_STATS_DB_PATH` | `data/benchmark-stats.db` | The benchmark's own stats database — separate from `STATS_DB_PATH`. |
+| `BENCHMARK_SNAPSHOT_DIR` | `data/benchmark-snapshots` | Where labelled snapshots are written/read. |
+| `BENCHMARK_SKILLS_DIR` | `benchmark/skills` | Skills loaded for the benchmark run — separate from the bot's `SKILLS_DIR`. |
+
+**Snapshots.** A completed run is saved as `<BENCHMARK_SNAPSHOT_DIR>/<label>.json` (gitignored, like everything under `data/`), recording per execution: task id and kind, correctness verdict, input/output tokens, estimated cost, turns, and tool calls — plus the conditions the run was produced under (the pinned model, and an identifier for the task set that changes whenever `benchmark/tasks.ts` changes).
+
+**Comparing two snapshots.** `npm run benchmark:compare -- <before> <after>` reports the change in tokens, estimated cost, and correctness rate, both overall and per task, each stated as a direction and magnitude — written to `data/benchmark-compare-<before>-vs-<after>.md`. A task whose correctness rate drops is called out individually (`regressedTasks`), so a regression concentrated in one task is visible even when it barely moves the overall rate. If the two snapshots used different models, or were produced from different task sets (i.e. `benchmark/tasks.ts` was edited between them), the comparison refuses to diff them — presenting that difference as though it were the effect of a change would be actively misleading, not just unhelpful.
+
+**Cost figures are proxies, not spend.** With a local provider (Ollama) real spend is zero; `PRICE_TABLE_PATH` (see [Statistics](#statistics)) holds the rates of comparable hosted models instead. The proportional change between two snapshots' estimated cost is meaningful for comparing "before" vs. "after" an optimization; the absolute figures are not an actual bill.
 
 ## Adding a new LLM connector
 

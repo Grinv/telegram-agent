@@ -41,3 +41,14 @@ test('stub connector returns a successful result when messages include a system 
 
   assert.ok(result.ok);
 });
+
+test('stub connector ignores sampling controls and still returns a result (task 1.4)', async () => {
+  const connector = new StubConnector();
+
+  const result = await connector.callLlm({ prompt: 'hello there', sampling: { temperature: 0, seed: 42 } });
+
+  assert.ok(result.ok);
+  if (result.ok) {
+    assert.match(result.text, /hello there/);
+  }
+});

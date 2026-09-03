@@ -22,6 +22,26 @@ services:
       - bot-net
     restart: unless-stopped
 
+  # Not started by `docker compose up` (gated behind the "benchmark"
+  # profile) - run explicitly with `docker compose run --rm benchmark ...`.
+  # See README.md's Benchmark section.
+  benchmark:
+    build:
+      context: .
+      dockerfile: benchmark/Dockerfile
+    image: telegram-agent-benchmark
+    profiles:
+      - benchmark
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+    depends_on:
+      - ollama
+    networks:
+      - bot-net
+
 networks:
   bot-net:
 

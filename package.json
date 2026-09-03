@@ -26,7 +26,12 @@
     "stats:report": "node --import tsx src/stats/reporter-cli.ts",
     "stats:summary": "node --import tsx src/stats/summary-cli.ts",
     "stats:timeline": "node --import tsx src/stats/timeline-cli.ts",
-    "stats:analysis": "node --import tsx src/stats/analysis-cli.ts"
+    "stats:analysis": "node --import tsx src/stats/analysis-cli.ts",
+    "benchmark:run": "node --import tsx benchmark/run.ts",
+    "benchmark:compare": "node --import tsx benchmark/compare-cli.ts",
+    "benchmark:docker:build": "docker compose build benchmark",
+    "benchmark:docker:run": "docker compose run --rm benchmark node --import tsx benchmark/run.ts",
+    "typecheck": "tsc --noEmit && tsc -p benchmark/tsconfig.json --noEmit"
   },
   "dependencies": {
     "undici": "^8.10.1"

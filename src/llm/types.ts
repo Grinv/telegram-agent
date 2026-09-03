@@ -60,11 +60,24 @@ export interface SystemMessage {
 export type ChatMessage = UserMessage | AssistantMessage | ToolMessage | SystemMessage;
 
 /**
+ * Sampling controls a request can ask a provider for, to make generation as
+ * reproducible as the provider supports (e.g. greedy decoding with a fixed
+ * seed). Optional and provider-dependent: a connector whose provider doesn't
+ * support them ignores them rather than failing.
+ */
+export interface SamplingControls {
+  temperature?: number;
+  seed?: number;
+}
+
+/**
  * Request carried across the connector contract. `prompt` is always present
  * (the latest user turn); `messages` carries the full conversation history for
  * tool-use loops; `tools` advertises available tools; `model` overrides the
  * connector's default model for this call; `think` disables the model's
- * "thinking" mode when set to `false` (unset leaves the provider's default).
+ * "thinking" mode when set to `false` (unset leaves the provider's default);
+ * `sampling` requests deterministic generation controls, absent by default so
+ * ordinary requests behave exactly as before.
  */
 export interface LlmRequest {
   prompt: string;
@@ -72,6 +85,7 @@ export interface LlmRequest {
   tools?: ToolDefinition[];
   model?: string;
   think?: boolean;
+  sampling?: SamplingControls;
 }
 
 export interface LlmSuccess {

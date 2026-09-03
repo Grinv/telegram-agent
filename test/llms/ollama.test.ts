@@ -359,6 +359,34 @@ test('a request with no system message produces the same wire payload as before 
   assert.equal(body.messages[2].content, 'file1.txt\nfile2.txt');
 });
 
+test('supplied sampling controls reach the provider as request.options (task 1.3)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'ok' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  await connector.callLlm({ prompt: 'hi', sampling: { temperature: 0, seed: 42 } });
+
+  const body = bodies[0] as { options?: { temperature?: number; seed?: number } };
+  assert.deepEqual(body.options, { temperature: 0, seed: 42 });
+});
+
+test('a request with no sampling controls produces a body identical to today\'s (task 1.3)', async () => {
+  const { fetch: fakeFetch, bodies } = capturingFetch(
+    jsonResponse(200, { message: { role: 'assistant', content: 'ok' } }),
+  );
+  const connector = new OllamaConnector({}, fakeFetch);
+
+  await connector.callLlm({ prompt: 'hi' });
+
+  assert.deepEqual(bodies[0], {
+    model: 'llama3',
+    messages: [{ role: 'user', content: 'hi' }],
+    stream: false,
+  });
+  assert.equal('options' in (bodies[0] as object), false);
+});
+
 test('default base URL is http://ollama:11434 (Docker network hostname)', async () => {
   const original = process.env.OLLAMA_BASE_URL;
   delete process.env.OLLAMA_BASE_URL;
