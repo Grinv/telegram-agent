@@ -242,6 +242,14 @@ added to the allow list either.
 Inside, the bot runs as an unprivileged user (`id` → `uid=1000(agent)`, not
 root).
 
+### Exporting traces (`OTEL_EXPORTER_OTLP_ENDPOINT`)
+
+Unset (the default), this changes nothing about the boundary: no OpenTelemetry SDK starts and nothing new is reachable or reached — see README.md's Statistics section.
+
+Set it, and the picture above stops being complete: `scripts/isolation.mjs` does not currently forward `OTEL_EXPORTER_OTLP_ENDPOINT` into `BOT_ENV`, nor does it add the destination to `ALLOWED_HOST_PORTS`, so setting the variable in the host's `.env` has **no effect inside this deployment** — the bot inside the boundary never sees it and exports nothing, silently. This is a gap, not a design choice: turning export on here means extending `scripts/isolation.mjs` to pass the variable through and to add its host:port to the network policy allow list (the same treatment `OLLAMA_PORT`/`BROKER_PORT` already get), which is not part of this change.
+
+Once that wiring exists, the same rule as everywhere else applies: the destination becomes a fourth reachable resource, reviewable in the same one place as the other three (`ALLOWED_HOST_PORTS`) — nothing is implicitly trusted just because it carries observability data rather than model traffic. A collector run via the regular Compose deployment's optional `otel-collector` service (`docker-compose.yml`) is not reachable from this boundary either, for the same reason Compose's `ollama` service isn't addressed by its Compose service name here — only a host-bound port, reached via `host.docker.internal`, is.
+
 ### The token: why a broker, what it protects
 
 The Telegram Bot API puts the token in the URL path

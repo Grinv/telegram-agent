@@ -1,0 +1,24 @@
+# Minimal OTLP collector config for local use with the optional
+# `otel-collector` Compose service (see docker-compose.yml, README.md's
+# Statistics section). Receives traces over OTLP/HTTP and gRPC and logs them
+# to its own console (`docker compose logs otel-collector`) - enough to
+# confirm spans are arriving. Swap the `exporters`/`service.pipelines.traces`
+# below for a real backend (Tempo, Jaeger, etc.) as needed; this repo does
+# not choose one for you (see design.md - Non-Goals).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  debug:
+    verbosity: normal
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug]

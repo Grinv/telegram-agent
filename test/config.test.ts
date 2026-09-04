@@ -23,6 +23,7 @@ import {
   resolveMaxSubagents,
   resolveMaxSubIterations,
   resolveSkillsDir,
+  resolveOtelExporterOtlpEndpoint,
   ConfigError,
 } from '../src/config.js';
 
@@ -295,4 +296,54 @@ test('resolveSkillsDir defaults to "skills"', () => {
 
 test('resolveSkillsDir returns the provided value', () => {
   assert.equal(resolveSkillsDir('custom-skills-dir'), 'custom-skills-dir');
+});
+
+// --- OTel export endpoint config resolver ---
+
+test('resolveOtelExporterOtlpEndpoint is unset by default', () => {
+  assert.equal(resolveOtelExporterOtlpEndpoint(undefined), undefined);
+  assert.equal(resolveOtelExporterOtlpEndpoint(''), undefined);
+});
+
+test('resolveOtelExporterOtlpEndpoint returns the provided value', () => {
+  assert.equal(
+    resolveOtelExporterOtlpEndpoint('http://localhost:4318'),
+    'http://localhost:4318'
+  );
+});
+
+test('loadConfig leaves otelExporterOtlpEndpoint unset by default (covers "Default configuration exports nothing")', () => {
+  const originalToken = process.env.TELEGRAM_BOT_TOKEN;
+  const originalEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+  process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+  delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+  try {
+    const config = loadConfig();
+    assert.equal(config.otelExporterOtlpEndpoint, undefined);
+  } finally {
+    if (originalToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = originalToken;
+    if (originalEndpoint === undefined) delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    else process.env.OTEL_EXPORTER_OTLP_ENDPOINT = originalEndpoint;
+  }
+});
+
+test('loadConfig reflects OTEL_EXPORTER_OTLP_ENDPOINT when set', () => {
+  const originalToken = process.env.TELEGRAM_BOT_TOKEN;
+  const originalEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+
+  process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://collector:4318';
+
+  try {
+    const config = loadConfig();
+    assert.equal(config.otelExporterOtlpEndpoint, 'http://collector:4318');
+  } finally {
+    if (originalToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = originalToken;
+    if (originalEndpoint === undefined) delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    else process.env.OTEL_EXPORTER_OTLP_ENDPOINT = originalEndpoint;
+  }
 });

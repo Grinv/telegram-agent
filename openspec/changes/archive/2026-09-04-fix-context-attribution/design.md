@@ -45,3 +45,28 @@ The understatement is bounded and visible: the block counts as new exactly once 
 **The corrected figures will look like a regression** → Repeated input will jump from the reported 31.7% to something far higher, and the instruction share will collapse. Nothing got worse; the earlier numbers were wrong. Whoever reads the views after this change lands needs that stated, or the correction will be mistaken for a change in the agent's behaviour. The analysis view's own output is the right place for it, not just the change's artifacts.
 
 **Attributing tool definitions does not make them smaller** → The view will now show that ~85% of input is a constant block, and that is the whole point; but it is a measurement change, and no token is saved by it. Any claim of saving belongs to a different change.
+
+## Verification
+
+The analysis view was regenerated over `data/benchmark-stats.db` after implementation, once the frozen benchmark task set (`7d533a54`, model `qwen2.5`) had been re-run under the new attribution with `BENCHMARK_REPETITIONS=5` (matching the recorded baseline exactly — see `benchmark/baseline.md`). The re-run reproduced the baseline's own token/cost/turn/tool-call/correctness figures exactly (`npm run benchmark:compare -- baseline after-fix`: tokens Δ +0, cost Δ +0, correctness Δ +0pp, no task regressed), so the two attributions' figures below describe the same 70 LLM calls / 48,845 input tokens, not a different run.
+
+**Content-category division** (share of the 48,845 input tokens):
+
+| Category | Previous attribution (proposal.md — Why) | Corrected attribution |
+|---|---|---|
+| Instructions | ~88% of a call's ~700 tokens on `capital-of-france` (624 of 707, from the four-category split) | 16.6% (8,090 tokens) |
+| Tool definitions | *(not attributed — folded into the figure above)* | **75.4% (36,840 tokens)** |
+| User request | ~12% of `capital-of-france` (83 of 707) | 4.1% (2,025 tokens) |
+| Conversation | *(counted, not separately reported in the Why section)* | 1.6% (770 tokens) |
+| Tool output | *(counted, not separately reported in the Why section)* | 2.3% (1,120 tokens) |
+
+The correction is exactly the one the proposal predicted: tool definitions were the largest single share of input (three-quarters of it) and were previously invisible, spread silently across the other four categories.
+
+**Repeated vs. new input:**
+
+| | Previous attribution | Corrected attribution |
+|---|---|---|
+| Repeated | 31.7% | 31.2% (14,555 tokens) |
+| New | 68.3% | 68.8% (32,040 tokens) |
+
+Unlike the category split, the repeated/new proportion barely moved. This is a real feature of this benchmark's task mix, not a sign the fix did nothing: repetition is scoped to a single task (a single `runLoop` invocation, per the Decisions above), and most of the six benchmark tasks are single-turn — `capital-of-france` and both messages of `remember-favorite-number` each make exactly one call, on which the tool-definition block is unavoidably new (there is no earlier call in that task to have repeated it). Only the multi-turn tasks (`shell-arithmetic`, `read-os-release`, `word-count-skill`, and the main loop of `subagent-three-sums`) have a second call within the same task on which the block counts as repeated. A workload with more multi-turn tasks per conversation would show a larger correction here; this benchmark's task mix happens not to.

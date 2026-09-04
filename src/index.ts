@@ -7,7 +7,7 @@ import { createMessageHandler, runLoop } from './orchestrator.js';
 import { createSubagentToolRegistry } from './tools/index.js';
 import type { ToolContext } from './tools/index.js';
 import { DockerSandboxExecutor } from './sandbox/sandbox-executor.js';
-import { createStatsRecorder, loadPriceTable } from './stats/index.js';
+import { createConfiguredStatsRecorder, loadPriceTable } from './stats/index.js';
 import { createHistoryStore } from './history/index.js';
 import { discoverModels } from './routing/model-discovery.js';
 import { createRouter, selectClassifierAndFallback } from './routing/index.js';
@@ -21,8 +21,17 @@ try {
   const client = new TelegramClient(config.telegramBotToken, fetch, config.telegramApiBaseUrl);
 
   const statsRecorder = config.statsEnabled
-    ? createStatsRecorder(config.statsDbPath, config.statsStorePrompts, loadPriceTable(config.priceTablePath))
+    ? createConfiguredStatsRecorder({
+        dbPath: config.statsDbPath,
+        storePrompts: config.statsStorePrompts,
+        priceTable: loadPriceTable(config.priceTablePath),
+        ...(config.otelExporterOtlpEndpoint ? { otelEndpoint: config.otelExporterOtlpEndpoint } : {}),
+      }).recorder
     : undefined;
+
+  if (config.statsEnabled && config.otelExporterOtlpEndpoint) {
+    logger.info('Stats: exporting traces via OTLP', { endpoint: config.otelExporterOtlpEndpoint });
+  }
 
   const historyStore = createHistoryStore(config.historyDbPath);
 

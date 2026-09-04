@@ -196,3 +196,24 @@ Planning-only session: read the frozen baseline and recorded its four figures; f
   - 07:04 → 07:45 (41m, 73 requests): baseline reading, attribution defect, Ollama cache experiment — 7 882 751 tokens
   - 07:45 → 08:41 (55m, 49 requests): `adopt-standard-observability`, RTK/RLM evaluation, RTK folded into `add-token-optimizations` — 10 501 951 tokens
   - 08:41 → 08:58 (17m, 38 requests): `fix-context-attribution`, sequencing, price table, three conservative reductions — 11 189 474 tokens
+
+## 2026-09-04 — fix-context-attribution
+
+Attributed tool definitions to their own content category and repeated-input bucket, added a schema migration marking the attribution version, updated dashboard views/queries, verified against a live benchmark re-run, and synced the agent-stats spec.
+
+- Time: 37m 30s total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-04 20:15 → 2026-09-04 20:52
+- claude-sonnet-5: 122 requests, duration n/a, in 243 / out 97 167 (reasoning 38 744) / cache write 275 425 / cache read 22 380 518
+- claude-opus-5: 5 requests, duration n/a, in 10 / out 3 802 (reasoning 1 597) / cache write 5 647 / cache read 1 871 145
+- Total: 24 633 957 tokens
+- Start: from /opsx:propose marker
+
+## 2026-09-05 — adopt-standard-observability
+
+Adopted OpenTelemetry trace export (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT) alongside the existing local SQLite stats recorder, with no change to default behavior or the benchmark baseline.
+
+- Time: 9h 46m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-04 15:45 → 2026-09-05 01:32
+- claude-sonnet-5: 344 requests, duration n/a, in 687 / out 242 094 (reasoning 103 284) / cache write 878 437 / cache read 68 669 194
+- claude-opus-5: 127 requests, duration n/a, in 254 / out 128 782 (reasoning 37 912) / cache write 532 007 / cache read 35 276 792
+- <synthetic>: 3 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 105 728 247 tokens
+- Start: from change file creation time

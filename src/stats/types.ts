@@ -55,10 +55,23 @@ export interface ToolCallStats {
 
 /**
  * Optional dependency the orchestrator calls at defined hook points. When
- * `undefined`, the loop skips all stats recording. Implementation is deferred
- * to a separate change; this interface is the only contract the orchestrator
- * depends on. `LlmResult` is accepted where the full result shape (success or
- * failure) is relevant.
+ * `undefined`, the loop skips all stats recording. `LlmResult` is accepted
+ * where the full result shape (success or failure) is relevant.
+ *
+ * Two independent implementations exist - `SqliteStatsRecorder` (local
+ * database) and `OtelStatsRecorder` (trace export) - composed together by
+ * `CompositeStatsRecorder` (see `src/stats/composite-recorder.ts`). Neither
+ * recomputes a value the other already has; both are handed the exact same
+ * `MessageStats`/`LlmCallStats`/`ToolCallStats` object, so the *values* can
+ * never disagree. What each recorder does independently decide is which
+ * fields of that object it captures and how - so a field added to one of
+ * these three interfaces can silently reach only one of the two recorders.
+ * Both `sqlite-recorder.ts` and `otel-exporter.ts` keep a
+ * `Record<keyof T, true>` coverage map for each of these types right next to
+ * their mapping code, specifically so adding a field here is a compile
+ * error in both files until someone decides, and states in a comment,
+ * whether and how the new field is captured there - see those maps before
+ * adding a field.
  */
 export interface StatsRecorder {
   recordMessage(stats: MessageStats): void;

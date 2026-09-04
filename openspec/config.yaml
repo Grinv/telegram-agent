@@ -11,6 +11,16 @@ context: |
   supply-chain surface: fetch for HTTP (Telegram Bot API, Ollama), util.styleText
   for colored console output, process.loadEnvFile() instead of dotenv.
 
+  Exception: the OpenTelemetry SDK (`@opentelemetry/*`, `src/stats/otel-*.ts`),
+  adopted by `adopt-standard-observability` to export traces over OTLP. No
+  Node built-in covers distributed tracing/OTLP export, so the "built-in
+  covers it" test doesn't apply here the way it does to HTTP or env loading.
+  Bound: this exception covers the `@opentelemetry/*` scope specifically (12
+  packages at adoption, see that change's notes.md) - it does not relax the
+  rule for other third-party SDKs, which still need their own justification
+  weighed the same way (see openspec/changes/archive/ for that change's
+  Decisions and Risks).
+
   LLM inference is pluggable: every provider implements one BaseConnector
   contract (callLlm(prompt): Promise<LlmResult>), lives under src/llms/<provider>/,
   and is selected at runtime via the LLM_PROVIDER env var (default: stub).

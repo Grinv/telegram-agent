@@ -162,21 +162,23 @@ export interface MostExpensiveTurn {
   inputTokens: number;
 }
 
-/** Per-content-category share of input tokens, aggregated over calls recorded after category attribution existed. */
+/** Per-content-category share of input tokens, aggregated over calls recorded under the current attribution (`attribution_version = 1`). */
 export interface CategoryShares {
   instructionTokens: number;
   userRequestTokens: number;
   conversationTokens: number;
   toolOutputTokens: number;
+  /** The definitions of the tools advertised to the model - its own category, distinct from the agent's instructions. */
+  toolDefinitionTokens: number;
   totalTokens: number;
-  /** Rows predating category attribution (no `timestamp`), excluded from these totals. */
+  /** Rows predating category attribution, or recorded under the previous (tool-definition-blind) attribution, excluded from these totals. */
   excludedRows: number;
 }
 
 export interface RepeatedVsNew {
   repeatedTokens: number;
   newTokens: number;
-  /** Rows predating repeated-input measurement (no `timestamp`), excluded from these totals. */
+  /** Rows predating repeated-input measurement, or recorded under the previous (tool-definition-blind) attribution, excluded from these totals. */
   excludedRows: number;
 }
 
@@ -199,6 +201,11 @@ export function analysisStats(db: DatabaseSync): AnalysisStats | null {
     )
     .get() as unknown as { message_id: number; turn_number: number; model: string; input_tokens: number } | undefined;
 
+  // `attribution_version = 1` marks rows recorded under the current
+  // attribution (tool definitions included); rows predating either category
+  // attribution entirely or this attribution fix land on the migration
+  // default (0) and are excluded rather than averaged in as though they were
+  // the same measurement (see openspec/changes/fix-context-attribution).
   const categoryRow = db
     .prepare(
       `SELECT
@@ -206,21 +213,23 @@ export function analysisStats(db: DatabaseSync): AnalysisStats | null {
          SUM(user_request_tokens) AS user_request_tokens,
          SUM(conversation_tokens) AS conversation_tokens,
          SUM(tool_output_tokens) AS tool_output_tokens,
+         SUM(tool_definition_tokens) AS tool_definition_tokens,
          COUNT(*) AS included
-       FROM llm_calls WHERE timestamp IS NOT NULL`
+       FROM llm_calls WHERE attribution_version = 1`
     )
     .get() as unknown as {
     instruction_tokens: number | null;
     user_request_tokens: number | null;
     conversation_tokens: number | null;
     tool_output_tokens: number | null;
+    tool_definition_tokens: number | null;
     included: number;
   };
 
   const repeatedRow = db
     .prepare(
       `SELECT SUM(repeated_input_tokens) AS repeated_tokens, SUM(new_input_tokens) AS new_tokens, COUNT(*) AS included
-       FROM llm_calls WHERE timestamp IS NOT NULL`
+       FROM llm_calls WHERE attribution_version = 1`
     )
     .get() as unknown as { repeated_tokens: number | null; new_tokens: number | null; included: number };
 
@@ -228,6 +237,7 @@ export function analysisStats(db: DatabaseSync): AnalysisStats | null {
   const userRequestTokens = categoryRow.user_request_tokens ?? 0;
   const conversationTokens = categoryRow.conversation_tokens ?? 0;
   const toolOutputTokens = categoryRow.tool_output_tokens ?? 0;
+  const toolDefinitionTokens = categoryRow.tool_definition_tokens ?? 0;
 
   return {
     toolShares: toolTokenShares(db),
@@ -239,7 +249,8 @@ export function analysisStats(db: DatabaseSync): AnalysisStats | null {
       userRequestTokens,
       conversationTokens,
       toolOutputTokens,
-      totalTokens: instructionTokens + userRequestTokens + conversationTokens + toolOutputTokens,
+      toolDefinitionTokens,
+      totalTokens: instructionTokens + userRequestTokens + conversationTokens + toolOutputTokens + toolDefinitionTokens,
       excludedRows: callCount - categoryRow.included,
     },
     repeatedVsNew: {

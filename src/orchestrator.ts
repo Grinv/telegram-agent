@@ -99,6 +99,7 @@ export async function runLoop(
 
     const { categoryTokens, repeatedInput } = measureContextStats(
       requestMessages,
+      tools,
       previousMessages,
       result.ok ? result.usage : undefined,
     );
@@ -178,12 +179,13 @@ export async function runLoop(
  */
 function measureContextStats(
   requestMessages: ChatMessage[],
+  tools: ToolDefinition[],
   previousMessages: ChatMessage[] | undefined,
   usage: TokenUsage | undefined,
 ): { categoryTokens?: ContextCategoryTokens; repeatedInput?: RepeatedInputTokens } {
   let categoryTokens: ContextCategoryTokens | undefined;
   try {
-    if (usage) categoryTokens = categorizeInputTokens(requestMessages, usage.promptTokens);
+    if (usage) categoryTokens = categorizeInputTokens(requestMessages, tools, usage.promptTokens);
   } catch (error) {
     logger.warn('Stats: context-category attribution failed, omitting it for this call', {
       error: error instanceof Error ? error.message : String(error),
@@ -192,7 +194,7 @@ function measureContextStats(
 
   let repeatedInput: RepeatedInputTokens | undefined;
   try {
-    repeatedInput = measureRepeatedInput(requestMessages, previousMessages);
+    repeatedInput = measureRepeatedInput(requestMessages, tools, previousMessages);
   } catch (error) {
     logger.warn('Stats: repeated-input measurement failed, omitting it for this call', {
       error: error instanceof Error ? error.message : String(error),

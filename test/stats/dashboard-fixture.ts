@@ -18,8 +18,14 @@ export function flush(): Promise<void> {
 
 const PRICE_TABLE = { modelA: { inputPerMillion: 2, outputPerMillion: 4 } };
 
-function cat(instructionTokens: number, userRequestTokens: number, conversationTokens: number, toolOutputTokens: number): ContextCategoryTokens {
-  return { instructionTokens, userRequestTokens, conversationTokens, toolOutputTokens };
+function cat(
+  instructionTokens: number,
+  userRequestTokens: number,
+  conversationTokens: number,
+  toolOutputTokens: number,
+  toolDefinitionTokens: number
+): ContextCategoryTokens {
+  return { instructionTokens, userRequestTokens, conversationTokens, toolOutputTokens, toolDefinitionTokens };
 }
 
 function rep(repeatedTokens: number, newTokens: number): RepeatedInputTokens {
@@ -42,7 +48,13 @@ export interface DashboardFixture {
     avgToolCallsPerTask: number;
     toolShares: { search: number; write: number };
     mostExpensiveTurn: { turnNumber: number; model: string; inputTokens: number };
-    categoryTotals: { instructionTokens: number; userRequestTokens: number; conversationTokens: number; toolOutputTokens: number };
+    categoryTotals: {
+      instructionTokens: number;
+      userRequestTokens: number;
+      conversationTokens: number;
+      toolOutputTokens: number;
+      toolDefinitionTokens: number;
+    };
     repeatedVsNew: { repeatedTokens: number; newTokens: number };
   };
 }
@@ -69,7 +81,7 @@ export async function buildDashboardFixture(): Promise<DashboardFixture> {
     text: 'a',
     usage: { promptTokens: 100, completionTokens: 50, cachedTokens: 20 },
     calledAt: 1000,
-    categoryTokens: cat(20, 30, 30, 20),
+    categoryTokens: cat(10, 20, 30, 20, 20),
     repeatedInput: rep(0, 100),
   });
   await flush();
@@ -88,7 +100,7 @@ export async function buildDashboardFixture(): Promise<DashboardFixture> {
     text: 'b',
     usage: { promptTokens: 200, completionTokens: 80 }, // no cachedTokens: provider never reported cache stats for this call
     calledAt: 2000,
-    categoryTokens: cat(40, 0, 100, 60),
+    categoryTokens: cat(20, 0, 80, 60, 40),
     repeatedInput: rep(100, 100),
   });
   await flush();
@@ -120,7 +132,7 @@ export async function buildDashboardFixture(): Promise<DashboardFixture> {
     text: 'c',
     usage: { promptTokens: 150, completionTokens: 60, cachedTokens: 30 },
     calledAt: 5000,
-    categoryTokens: cat(10, 50, 50, 40),
+    categoryTokens: cat(5, 40, 50, 40, 15),
     repeatedInput: rep(0, 150),
   });
   await flush();
@@ -157,7 +169,13 @@ export async function buildDashboardFixture(): Promise<DashboardFixture> {
       avgToolCallsPerTask: 2, // 4 tool calls / 2 tasks
       toolShares: { search: 0.6, write: 0.4 }, // search: 10+20=30 tokens, write: 5+15=20 tokens, total 50
       mostExpensiveTurn: { turnNumber: 1, model: 'modelA', inputTokens: 200 },
-      categoryTotals: { instructionTokens: 70, userRequestTokens: 80, conversationTokens: 180, toolOutputTokens: 120 },
+      categoryTotals: {
+        instructionTokens: 35,
+        userRequestTokens: 60,
+        conversationTokens: 160,
+        toolOutputTokens: 120,
+        toolDefinitionTokens: 75,
+      },
       repeatedVsNew: { repeatedTokens: 100, newTokens: 350 },
     },
   };

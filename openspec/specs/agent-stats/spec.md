@@ -107,22 +107,42 @@ A model with no configured price SHALL record a zero cost and SHALL be reportabl
 - **THEN** the row records a zero cost and the model can be identified as unpriced rather than as costless
 
 ### Requirement: Input tokens are attributed to content categories
-The system SHALL record, for each LLM call, how that call's input divides across content categories: the agent's own instructions, the user's request, the conversation that preceded it, and output previously returned by tools. The categories SHALL together account for the call's input, so no part of it is unattributed.
+The system SHALL record, for each LLM call, how that call's input divides across content categories: the agent's own instructions, the definitions of the tools advertised to the model, the user's request, the conversation that preceded it, and output previously returned by tools. The categories SHALL together account for the call's whole input, including content the model receives outside the message list, so no part of it is unattributed.
+
+The definitions of the advertised tools SHALL be attributed to their own category rather than merged into the agent's instructions, so that content generated from the registered tools is distinguishable from instruction text that is authored and edited directly.
 
 #### Scenario: Categories account for the input
-- **WHEN** an LLM call is made with instructions, a user request, prior conversation and prior tool output in its input
+- **WHEN** an LLM call is made with instructions, tool definitions, a user request, prior conversation and prior tool output in its input
 - **THEN** each category's share is recorded, and their total accounts for the call's input tokens
+
+#### Scenario: Tool definitions are attributed to themselves
+- **WHEN** an LLM call advertises tools to the model
+- **THEN** the tokens those definitions occupy are recorded under the tool-definition category, and are not added to the instruction, user-request, conversation or tool-output categories
 
 #### Scenario: Growth of a category is visible across turns
 - **WHEN** a task runs several turns during which tool output accumulates
 - **THEN** the recorded tool-output share grows across those turns while the instruction share does not
 
+#### Scenario: An unchanged category does not appear to change
+- **WHEN** two turns of the same task are made with byte-identical instructions and byte-identical tool definitions, and the later turn carries additional tool output
+- **THEN** the recorded instruction and tool-definition figures are the same for both turns, and only the categories whose content actually changed differ
+
+#### Scenario: A call that advertises no tools
+- **WHEN** an LLM call is made with no tools advertised
+- **THEN** no input is attributed to the tool-definition category, and the remaining categories account for the call's whole input
+
 ### Requirement: Repeated input is measured against earlier calls
-The system SHALL record, for each LLM call after the first of a task, how much of its input had already been sent to the model in an earlier call of that same task, and how much was new. This measurement SHALL be computed by the system rather than taken from the provider, so it is available regardless of whether the provider reports cache statistics.
+The system SHALL record, for each LLM call after the first of a task, how much of its input had already been sent to the model in an earlier call of that same task, and how much was new. This measurement SHALL account for every part of the input the model receives, including the tool definitions, not only the message list. It SHALL be computed by the system rather than taken from the provider, so it is available regardless of whether the provider reports cache statistics.
+
+Repetition SHALL continue to be measured within a task and not across tasks. Content that is identical on every call therefore counts as new on a task's first call and as repeated on each call after it.
 
 #### Scenario: Later turn repeats earlier content
 - **WHEN** a task's second turn resends the conversation from its first turn along with new tool output
 - **THEN** the repeated portion is recorded as already-sent and only the new tool output is recorded as new
+
+#### Scenario: Unchanged tool definitions count as repeated on a later turn
+- **WHEN** a task's second turn advertises the same tool definitions as its first
+- **THEN** the tokens those definitions occupy are recorded as repeated rather than as new, and are not omitted from the measurement
 
 #### Scenario: First call of a task
 - **WHEN** the first LLM call of a task is made
@@ -131,6 +151,58 @@ The system SHALL record, for each LLM call after the first of a task, how much o
 #### Scenario: Repetition is measured per task
 - **WHEN** two different messages send similar content
 - **THEN** the second message's first call records no repeated input, because repetition is measured within a task and not across tasks
+
+### Requirement: Recorded activity is exported as distributed traces
+The system SHALL, in addition to recording statistics locally, emit the same activity as a distributed trace: one span covering the handling of a message, a child span for each LLM call made while handling it, and a child span for each tool call. Each span SHALL carry the measurements already recorded for that unit of work — for an LLM call, the model, input and output token counts, latency, estimated cost, turn number and the identity of the agent that made it; for a tool call, the tool name, input size, output size, output token count and duration; for a message, its total latency, iteration count, tool-call count and success or failure.
+
+The parent-child relationship SHALL reflect the actual work: a sub-agent's LLM calls SHALL appear beneath the tool call that spawned them, so a reader can see what a single message cost in total and where that cost was incurred.
+
+#### Scenario: A message that used tools produces a nested trace
+- **WHEN** a message is handled that makes two LLM calls with a tool call between them, and export is configured
+- **THEN** the exported trace contains one span for the message, two LLM-call spans and one tool-call span beneath it, each carrying that unit's recorded measurements
+
+#### Scenario: Sub-agent work is attributed to the tool call that started it
+- **WHEN** a message is handled in which a tool call spawns sub-agents that make their own LLM calls, and export is configured
+- **THEN** the sub-agents' LLM-call spans appear beneath that tool call's span, not as siblings of the message's own LLM calls
+
+#### Scenario: A failed message is exported as failed
+- **WHEN** handling a message fails and export is configured
+- **THEN** the message's span records the failure and its reason, rather than being omitted or exported as successful
+
+### Requirement: Export is off unless an operator configures a destination
+The system SHALL export traces only to a destination the operator has configured. When no destination is configured, the system SHALL NOT export, SHALL NOT require any collector or backend to be running, and SHALL behave exactly as it does with the feature absent.
+
+No destination SHALL be configured by default, so that no deployment sends its activity anywhere without the operator choosing to.
+
+#### Scenario: No destination configured
+- **WHEN** the agent runs with no export destination configured
+- **THEN** it handles messages normally, records statistics locally as before, exports nothing, and does not require a collector to be reachable
+
+#### Scenario: Operator configures a destination
+- **WHEN** the operator configures an export destination and the agent handles a message
+- **THEN** the message's trace is sent to that destination
+
+#### Scenario: Default configuration exports nothing
+- **WHEN** the agent is deployed using the shipped default configuration
+- **THEN** no export destination is set, and no activity leaves the machine
+
+### Requirement: Derived context measurements travel with the exported spans
+The system SHALL carry on each exported LLM-call span the derived measurements it computes for that call: the division of the call's input tokens across every content category it records, and the proportion of the call's input that had already been sent to the model versus what was new. Every category the system records SHALL be carried, so a category added to the recorded division is not silently absent from the exported one.
+
+#### Scenario: Category and repetition figures reach the destination
+- **WHEN** an LLM call whose input was attributed across content categories and measured for repetition is exported
+- **THEN** its span carries both the per-category input token counts and the repeated and new input token counts
+
+#### Scenario: A call whose derived figures could not be computed
+- **WHEN** an LLM call is exported for which a derived measurement was not computed
+- **THEN** the span omits that measurement rather than carrying a zero in its place
+
+### Requirement: A figure the provider never reported is not exported as a measurement
+The system SHALL NOT export a value that was never measured as though it had been. In particular, when a provider reports no cached-token or reasoning-token count, the corresponding span attribute SHALL be omitted rather than set to zero.
+
+#### Scenario: Provider reports no cached-token count
+- **WHEN** an LLM call is exported whose provider reported no cached-token count
+- **THEN** the span omits the cached-token attribute rather than recording it as zero
 
 ### Requirement: Markdown report generation
 The system SHALL provide a command (`npm run stats:report`) that reads the SQLite database and generates a Markdown report file containing: per-model token totals (input, output, total), per-role token breakdown, average latency per model, overall success rate, and tool usage summary. The report file SHALL be written under `data/` (gitignored).
@@ -168,6 +240,8 @@ The system SHALL provide a view of a single identified task that lists its turns
 ### Requirement: An analysis view identifies where tokens are going
 The system SHALL provide an analysis view reporting: the tools ranked by their share of generated tokens, the single most expensive turn with its input token count, the division of input tokens across content categories, and the proportion of input that had already been sent to the model versus what was new.
 
+The category division SHALL name every category it reports, including the tool definitions, so a reader can see what share of a request is content resent unchanged on every call rather than inferring it.
+
 #### Scenario: Analysis identifies the largest consumers
 - **WHEN** the analysis view is generated over a database holding tasks that used several tools across multiple turns
 - **THEN** it ranks the tools by token share, names the most expensive turn and its input token count, breaks input down by content category, and reports the repeated and new proportions of input
@@ -176,8 +250,14 @@ The system SHALL provide an analysis view reporting: the tools ranked by their s
 - **WHEN** the analysis view reports the division of input across content categories
 - **THEN** the reported shares account for the input tokens they describe, leaving no unattributed remainder
 
+#### Scenario: The constant portion of a request is visible
+- **WHEN** the analysis view reports the category division over calls that advertised tools
+- **THEN** the tool-definition category appears as its own line with its own share, distinct from the agent's instructions
+
 ### Requirement: Unavailable figures are reported as unavailable
 The system SHALL distinguish a figure that was never measured from a figure measured as zero, and SHALL NOT present the former as an observation. In particular, a cache hit rate SHALL be reported only over calls whose provider actually reported cached tokens, and SHALL be omitted or marked unavailable otherwise.
+
+A figure recorded under a superseded method of attribution SHALL be distinguishable from one recorded under the current method, and SHALL NOT be aggregated together with it as though the two were the same measurement.
 
 #### Scenario: Provider reported no cache statistics
 - **WHEN** a view covering calls whose provider reported no cached tokens would otherwise show a cache hit rate
@@ -191,12 +271,30 @@ The system SHALL distinguish a figure that was never measured from a figure meas
 - **WHEN** a view covers rows recorded before a field was introduced, whose stored value is a migration default rather than a measurement
 - **THEN** those rows are excluded from that field's aggregate or the aggregate is marked as partial, rather than averaging defaults in as observations
 
+#### Scenario: Rows recorded under the previous attribution
+- **WHEN** a view reports content-category or repeated-input figures over rows recorded before tool definitions were attributed
+- **THEN** those rows are excluded from the aggregate or the aggregate is marked as partial, rather than combining the two attributions into one figure
+
 ### Requirement: Stats recording does not block the orchestrator
 The system SHALL write statistics asynchronously (fire-and-forget) so that a slow disk write or database lock does not delay message processing. If a stats write fails, the failure SHALL be logged but SHALL NOT cause the message handling to fail.
+
+Exporting SHALL be subject to the same rule. An export destination that is unreachable, slow to respond, or rejects what it is sent SHALL NOT delay a reply, SHALL NOT fail the message being handled, and SHALL NOT cause local statistics to go unrecorded. Such a failure SHALL be logged, and SHALL NOT be logged once per span in a way that floods the log while the destination stays down.
 
 #### Scenario: Database write fails
 - **WHEN** a stats write fails (e.g. disk full, database locked)
 - **THEN** the error is logged as a warning and the message handling continues normally (the reply is still sent)
+
+#### Scenario: Export destination is unreachable
+- **WHEN** an export destination is configured but cannot be reached while a message is being handled
+- **THEN** the reply is still sent, the message's statistics are still recorded locally, and the export failure is logged
+
+#### Scenario: Export destination is slow
+- **WHEN** an export destination is configured but responds more slowly than the time it takes to handle a message
+- **THEN** the reply is not delayed waiting for it
+
+#### Scenario: Export destination stays down
+- **WHEN** an export destination remains unreachable across many handled messages
+- **THEN** the failure is reported without emitting one log entry per unexported span
 
 ### Requirement: Schema changes are applied via versioned migrations that preserve existing data
 The system SHALL track the stats database's schema version and, whenever the database is opened, SHALL apply any pending migrations in order so the schema matches the version expected by the running code. Applying migrations SHALL preserve all existing rows in `messages`, `llm_calls`, and `tool_calls` — a schema change SHALL NOT require deleting or recreating the database file to pick up the new schema.

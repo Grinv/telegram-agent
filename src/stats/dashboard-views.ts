@@ -99,11 +99,17 @@ export function renderAnalysis(stats: AnalysisStats | null): string {
   }
   sections.push('');
 
-  sections.push('## Input by content category', '');
+  sections.push(
+    '## Input by content category',
+    '',
+    "Measured over the whole request, including the tool definitions advertised to the model - not only the message list - so figures here are a corrected measurement, not a change in the agent's behaviour, compared to any earlier report of these figures.",
+    ''
+  );
   const c = stats.categoryShares;
   if (c.totalTokens > 0) {
     sections.push('| Category | Tokens | Share |', '| --- | --- | --- |');
     sections.push(`| Instructions | ${c.instructionTokens} | ${pct(c.instructionTokens / c.totalTokens)} |`);
+    sections.push(`| Tool definitions | ${c.toolDefinitionTokens} | ${pct(c.toolDefinitionTokens / c.totalTokens)} |`);
     sections.push(`| User request | ${c.userRequestTokens} | ${pct(c.userRequestTokens / c.totalTokens)} |`);
     sections.push(`| Conversation | ${c.conversationTokens} | ${pct(c.conversationTokens / c.totalTokens)} |`);
     sections.push(`| Tool output | ${c.toolOutputTokens} | ${pct(c.toolOutputTokens / c.totalTokens)} |`);
@@ -111,11 +117,19 @@ export function renderAnalysis(stats: AnalysisStats | null): string {
     sections.push('No data.');
   }
   if (c.excludedRows > 0) {
-    sections.push('', `Note: ${c.excludedRows} call(s) recorded before category attribution existed are excluded from this breakdown.`);
+    sections.push(
+      '',
+      `Note: ${c.excludedRows} call(s) recorded before category attribution existed, or under the previous (tool-definition-blind) attribution, are excluded from this breakdown.`
+    );
   }
   sections.push('');
 
-  sections.push('## Repeated vs. new input', '');
+  sections.push(
+    '## Repeated vs. new input',
+    '',
+    "Measured over the whole request, including the tool definitions - a constant block resent on every call after a task's first counts as repeated - so this proportion is a corrected measurement, not a change in the agent's behaviour, compared to any earlier report of it.",
+    ''
+  );
   const r = stats.repeatedVsNew;
   const repeatedNewTotal = r.repeatedTokens + r.newTokens;
   if (repeatedNewTotal > 0) {
@@ -125,7 +139,10 @@ export function renderAnalysis(stats: AnalysisStats | null): string {
     sections.push('No data.');
   }
   if (r.excludedRows > 0) {
-    sections.push('', `Note: ${r.excludedRows} call(s) recorded before repeated-input measurement existed are excluded from this breakdown.`);
+    sections.push(
+      '',
+      `Note: ${r.excludedRows} call(s) recorded before repeated-input measurement existed, or under the previous (tool-definition-blind) attribution, are excluded from this breakdown.`
+    );
   }
   sections.push('');
 

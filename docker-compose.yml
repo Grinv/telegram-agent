@@ -22,6 +22,22 @@ services:
       - bot-net
     restart: unless-stopped
 
+  # Optional local OTLP destination for OTEL_EXPORTER_OTLP_ENDPOINT (see
+  # .env.example, README.md's Statistics section). Not started by
+  # `docker compose up` (gated behind the "otel-collector" profile) - start
+  # explicitly with `docker compose --profile otel-collector up`, then set
+  # OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 in .env. The
+  # default config (otel-collector-config.yaml) just logs received traces to
+  # its own console; point it at a real backend by editing that file.
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    profiles:
+      - otel-collector
+    networks:
+      - bot-net
+
   # Not started by `docker compose up` (gated behind the "benchmark"
   # profile) - run explicitly with `docker compose run --rm benchmark ...`.
   # See README.md's Benchmark section.

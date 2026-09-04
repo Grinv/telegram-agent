@@ -7,11 +7,55 @@ import { computeCost, isPriced, type PriceTable } from './pricing.js';
 import { estimateTokens } from './token-estimate.js';
 import type { LlmCallStats, MessageStats, StatsRecorder, ToolCallStats } from './types.js';
 
+/**
+ * Compile-time-only coverage maps: not read at runtime, exist purely so
+ * adding a field to `MessageStats`/`LlmCallStats`/`ToolCallStats`
+ * (`src/stats/types.ts`) is a type error here until someone adds it below
+ * and states, in a comment, whether and how this recorder captures it (see
+ * the note on `StatsRecorder` in `types.ts` for why - the same maps exist in
+ * `otel-exporter.ts`, independently).
+ */
+const MESSAGE_STATS_FIELD_COVERAGE: Record<keyof MessageStats, true> = {
+  chatId: true,
+  prompt: true, // -> messages.prompt_text, gated by storePrompts
+  receivedAt: true, // -> messages.timestamp; also keys `pendingByChat`/`currentPending`
+  reply: true, // -> messages.reply_text, gated by storePrompts
+  replySentAt: true, // used to derive messages.total_ms
+  ok: true, // -> messages.ok
+  iterations: true, // -> messages.iterations
+  reason: true, // -> messages.reason
+};
+
+const LLM_CALL_STATS_FIELD_COVERAGE: Record<keyof LlmCallStats, true> = {
+  iteration: true, // -> llm_calls.turn_number
+  role: true, // -> llm_calls.role
+  agentId: true, // -> llm_calls.agent_id
+  model: true, // -> llm_calls.model
+  ok: true, // -> llm_calls.ok
+  text: true, // deliberately not persisted - matches otel-exporter.ts, see StatsRecorder note
+  toolCalls: true, // deliberately not persisted - matches otel-exporter.ts, see StatsRecorder note
+  usage: true, // -> llm_calls.{input,output,cached,reasoning}_tokens, usage_detail_reported, estimated_cost
+  durationMs: true, // -> llm_calls.latency
+  calledAt: true, // -> llm_calls.timestamp
+  categoryTokens: true, // -> llm_calls.{instruction,user_request,conversation,tool_output,tool_definition}_tokens
+  repeatedInput: true, // -> llm_calls.{repeated,new}_input_tokens
+};
+
+const TOOL_CALL_STATS_FIELD_COVERAGE: Record<keyof ToolCallStats, true> = {
+  iteration: true, // deliberately not persisted (no turn_number column on tool_calls) - pre-existing, not otel-specific
+  toolCalls: true, // per-item -> tool_calls.tool_name, args_json, input_size
+  results: true, // per-item -> tool_calls.ok, output_size, output_tokens
+  durationMs: true, // -> tool_calls.duration, reused for every call in the same batch (no per-call timing available)
+};
+
 interface PendingMessage {
   id: number;
   receivedAt: number;
   toolCallCount: number;
 }
+
+/** Current content-category/repeated-input attribution method (tool definitions included). See migration 4. */
+const ATTRIBUTION_VERSION = 1;
 
 /**
  * Writes agent operation stats to a local SQLite database. Never throws:
@@ -60,9 +104,9 @@ export class SqliteStatsRecorder implements StatsRecorder {
            message_id, turn_number, role, agent_id, model, input_tokens, output_tokens, latency, ok,
            timestamp, cached_tokens, reasoning_tokens, usage_detail_reported, estimated_cost, priced,
            instruction_tokens, user_request_tokens, conversation_tokens, tool_output_tokens,
-           repeated_input_tokens, new_input_tokens
+           repeated_input_tokens, new_input_tokens, tool_definition_tokens, attribution_version
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       this.insertToolCallStmt = db.prepare(
         `INSERT INTO tool_calls (message_id, llm_call_id, tool_name, args_json, duration, ok, output_size, input_size, output_tokens)
@@ -170,7 +214,12 @@ export class SqliteStatsRecorder implements StatsRecorder {
       category?.conversationTokens ?? 0,
       category?.toolOutputTokens ?? 0,
       repeated?.repeatedTokens ?? 0,
-      repeated?.newTokens ?? 0
+      repeated?.newTokens ?? 0,
+      category?.toolDefinitionTokens ?? 0,
+      // `category` is only ever set by code that computes the current (tool-definition-aware)
+      // attribution - a row from before this field existed always has it undefined - so its
+      // presence doubles as the marker distinguishing the two attribution methods.
+      category ? ATTRIBUTION_VERSION : 0
     );
 
     this.lastLlmCallId = Number(result.lastInsertRowid);

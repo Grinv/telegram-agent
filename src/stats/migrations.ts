@@ -45,6 +45,22 @@ export const MIGRATIONS: Migration[] = [
         ALTER TABLE llm_calls ADD COLUMN new_input_tokens INTEGER NOT NULL DEFAULT 0;
       `),
   },
+  {
+    // Tool definitions (LlmRequest.tools) are now attributed to their own
+    // content category and counted in repeated-input, rather than being
+    // silently spread across the four categories above and omitted from
+    // repetition. `tool_definition_tokens` carries the new figure;
+    // `attribution_version` marks which method a row was computed under (0:
+    // rows written before this migration, under the old attribution; 1: rows
+    // written after it) so views can tell the two apart rather than
+    // averaging them together. See openspec/changes/fix-context-attribution.
+    version: 4,
+    up: (db) =>
+      db.exec(`
+        ALTER TABLE llm_calls ADD COLUMN tool_definition_tokens INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE llm_calls ADD COLUMN attribution_version INTEGER NOT NULL DEFAULT 0;
+      `),
+  },
 ];
 
 /**

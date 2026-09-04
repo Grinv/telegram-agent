@@ -24,6 +24,7 @@ export interface AppConfig {
   maxSubagents: number;
   maxSubIterations: number;
   skillsDir: string;
+  otelExporterOtlpEndpoint: string | undefined;
 }
 
 export class ConfigError extends Error {}
@@ -209,6 +210,16 @@ export function resolveSkillsDir(raw: string | undefined): string {
   return raw ?? 'skills';
 }
 
+/**
+ * Pure: resolves OTEL_EXPORTER_OTLP_ENDPOINT, the OTLP destination traces are
+ * exported to. Unset by default - no destination means no export and no
+ * collector required (see openspec/specs/agent-stats/spec.md - "Export is
+ * off unless an operator configures a destination").
+ */
+export function resolveOtelExporterOtlpEndpoint(raw: string | undefined): string | undefined {
+  return raw || undefined;
+}
+
 export function loadConfig(): AppConfig {
   try {
     process.loadEnvFile();
@@ -240,5 +251,6 @@ export function loadConfig(): AppConfig {
     maxSubagents: resolveMaxSubagents(process.env.MAX_SUBAGENTS),
     maxSubIterations: resolveMaxSubIterations(process.env.MAX_SUB_ITERATIONS),
     skillsDir: resolveSkillsDir(process.env.SKILLS_DIR),
+    otelExporterOtlpEndpoint: resolveOtelExporterOtlpEndpoint(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
   };
 }

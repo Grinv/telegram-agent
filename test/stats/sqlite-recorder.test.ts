@@ -397,6 +397,52 @@ test('changing the price table after a call was recorded does not alter that row
   }
 });
 
+test('a recorded call\'s tool-definition tokens are written and read back, and the row is marked under the current attribution', async () => {
+  const dbPath = tmpDbPath();
+  const recorder = new SqliteStatsRecorder(dbPath, true);
+
+  recorder.recordMessage({ chatId: 1, prompt: 'p', receivedAt: 0 });
+  await flush();
+  recorder.recordLlmCall({
+    iteration: 0,
+    model: 'llama3',
+    ok: true,
+    text: 'x',
+    usage: { promptTokens: 100, completionTokens: 10 },
+    categoryTokens: { instructionTokens: 10, userRequestTokens: 10, conversationTokens: 10, toolOutputTokens: 10, toolDefinitionTokens: 70 },
+    repeatedInput: { repeatedTokens: 70, newTokens: 30 },
+  });
+  await flush();
+
+  const db = new DatabaseSync(dbPath);
+  try {
+    const llmCall = db.prepare('SELECT * FROM llm_calls').get() as Record<string, unknown>;
+    assert.equal(llmCall.tool_definition_tokens, 70);
+    assert.equal(llmCall.attribution_version, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('a call recorded with no category tokens (as if from before attribution existed) is marked under the previous attribution', async () => {
+  const dbPath = tmpDbPath();
+  const recorder = new SqliteStatsRecorder(dbPath, true);
+
+  recorder.recordMessage({ chatId: 1, prompt: 'p', receivedAt: 0 });
+  await flush();
+  recorder.recordLlmCall({ iteration: 0, model: 'stub', ok: true, text: 'x', usage: { promptTokens: 100, completionTokens: 10 } });
+  await flush();
+
+  const db = new DatabaseSync(dbPath);
+  try {
+    const llmCall = db.prepare('SELECT * FROM llm_calls').get() as Record<string, unknown>;
+    assert.equal(llmCall.tool_definition_tokens, 0);
+    assert.equal(llmCall.attribution_version, 0);
+  } finally {
+    db.close();
+  }
+});
+
 test('storePrompts=false writes null for prompt_text and reply_text', async () => {
   const dbPath = tmpDbPath();
   const recorder = new SqliteStatsRecorder(dbPath, false);

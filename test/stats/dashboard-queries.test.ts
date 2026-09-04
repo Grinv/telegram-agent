@@ -112,8 +112,13 @@ test('analysisStats category shares account for the reported input tokens, with 
   assert.equal(categoryShares.userRequestTokens, fixture.expected.categoryTotals.userRequestTokens);
   assert.equal(categoryShares.conversationTokens, fixture.expected.categoryTotals.conversationTokens);
   assert.equal(categoryShares.toolOutputTokens, fixture.expected.categoryTotals.toolOutputTokens);
+  assert.equal(categoryShares.toolDefinitionTokens, fixture.expected.categoryTotals.toolDefinitionTokens);
   assert.equal(
-    categoryShares.instructionTokens + categoryShares.userRequestTokens + categoryShares.conversationTokens + categoryShares.toolOutputTokens,
+    categoryShares.instructionTokens +
+      categoryShares.userRequestTokens +
+      categoryShares.conversationTokens +
+      categoryShares.toolOutputTokens +
+      categoryShares.toolDefinitionTokens,
     categoryShares.totalTokens
   );
   assert.equal(categoryShares.totalTokens, fixture.expected.inputTokens, 'accounts for every reported input token, no remainder');
@@ -121,6 +126,20 @@ test('analysisStats category shares account for the reported input tokens, with 
 
   assert.equal(analysis.repeatedVsNew.repeatedTokens, fixture.expected.repeatedVsNew.repeatedTokens);
   assert.equal(analysis.repeatedVsNew.newTokens, fixture.expected.repeatedVsNew.newTokens);
+});
+
+test('analysisStats reports the tool-definition category as its own line, distinct from instructions', async () => {
+  const fixture = await buildDashboardFixture();
+  const db = new DatabaseSync(fixture.dbPath);
+  const analysis = analysisStats(db)!;
+  db.close();
+
+  assert.ok(analysis.categoryShares.toolDefinitionTokens > 0, 'the tool-definition category must carry a non-zero share');
+  assert.notEqual(
+    analysis.categoryShares.toolDefinitionTokens,
+    analysis.categoryShares.instructionTokens,
+    'the tool-definition figure must be distinguishable from the instruction figure, not merged into it'
+  );
 });
 
 // --- Honest reporting of missing data ---
@@ -152,6 +171,54 @@ test('cost total is marked partial when activity included an unpriced model', as
   assert.equal(stats.costPartial, true);
 });
 
+test('an aggregate spanning rows from both attributions excludes the rows recorded under the previous attribution rather than combining the two into one figure', async () => {
+  const dbPath = tmpDbPath();
+  const recorder = new SqliteStatsRecorder(dbPath, true);
+
+  recorder.recordMessage({ chatId: 1, prompt: 'p', receivedAt: 0 });
+  await flush();
+
+  // A row as the previous (tool-definition-blind) attribution would have written it: the
+  // category and repeated-input columns are populated (this is not the "field never existed"
+  // case already covered below), but `attribution_version` is left at its migration default
+  // (0) because no code path sets it to 1 except the current recorder.
+  const db = new DatabaseSync(dbPath);
+  db.prepare(
+    `INSERT INTO llm_calls (
+       message_id, turn_number, role, agent_id, model, input_tokens, output_tokens, latency, ok, timestamp,
+       instruction_tokens, user_request_tokens, conversation_tokens, tool_output_tokens,
+       repeated_input_tokens, new_input_tokens, tool_definition_tokens, attribution_version
+     )
+     VALUES (1, 0, 'main', 'main', 'stub', 500, 10, 0, 1, '2024-01-01T00:00:00.000Z', 400, 50, 50, 0, 0, 500, 0, 0)`
+  ).run();
+  db.close();
+
+  recorder.recordLlmCall({
+    iteration: 1,
+    model: 'stub',
+    ok: true,
+    text: 'y',
+    usage: { promptTokens: 40, completionTokens: 10 },
+    calledAt: 1000,
+    categoryTokens: { instructionTokens: 5, userRequestTokens: 5, conversationTokens: 10, toolOutputTokens: 5, toolDefinitionTokens: 15 },
+    repeatedInput: { repeatedTokens: 15, newTokens: 25 },
+  });
+  await flush();
+  recorder.recordMessage({ chatId: 1, reply: 'r', replySentAt: 10, ok: true, iterations: 2 });
+  await flush();
+
+  const readDb = new DatabaseSync(dbPath);
+  const analysis = analysisStats(readDb)!;
+  readDb.close();
+
+  assert.equal(analysis.categoryShares.excludedRows, 1);
+  assert.equal(analysis.categoryShares.totalTokens, 40, 'the pre-fix row\'s 500 input tokens must not be averaged into the total');
+  assert.equal(analysis.categoryShares.toolDefinitionTokens, 15);
+  assert.equal(analysis.repeatedVsNew.excludedRows, 1);
+  assert.equal(analysis.repeatedVsNew.repeatedTokens, 15);
+  assert.equal(analysis.repeatedVsNew.newTokens, 25);
+});
+
 test('rows recorded before category and repeated-input tracking existed are excluded from those aggregates, not averaged in as zero', async () => {
   const dbPath = tmpDbPath();
   const recorder = new SqliteStatsRecorder(dbPath, true);
@@ -169,7 +236,7 @@ test('rows recorded before category and repeated-input tracking existed are excl
     text: 'y',
     usage: { promptTokens: 40, completionTokens: 10 },
     calledAt: 1000,
-    categoryTokens: { instructionTokens: 10, userRequestTokens: 10, conversationTokens: 10, toolOutputTokens: 10 },
+    categoryTokens: { instructionTokens: 10, userRequestTokens: 10, conversationTokens: 10, toolOutputTokens: 10, toolDefinitionTokens: 0 },
     repeatedInput: { repeatedTokens: 15, newTokens: 25 },
   });
   await flush();
