@@ -182,3 +182,17 @@ Implemented the agent benchmark (fixed task set, repeatable runner, snapshots, c
 - <synthetic>: 2 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
 - Total: 380 248 151 tokens
 - Start: from change file creation time
+
+## 2026-09-04 — planning session (three changes, none archived)
+
+Planning-only session: read the frozen baseline and recorded its four figures; found and measured that `categorizeInputTokens` and `measureRepeatedInput` both ignore tool definitions (~542 of every call's ~700 input tokens), which understates repeated input as 31.7%; measured against the running Ollama that `prompt_eval_count` reports the full prompt even on a byte-identical repeat, so no cache hit rate is obtainable on this provider. Created `fix-context-attribution` and `adopt-standard-observability`, and extended `add-token-optimizations` with RTK shell-output compression and three redundancy-only reductions of the constant request block (~32% estimated). No code was written and nothing was archived.
+
+- Time: 1h 53m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-04 07:04 → 2026-09-04 08:58
+- claude-opus-5: 160 requests, duration n/a, in 320 / out 168 422 (reasoning 60 002) / cache write 321 387 / cache read 29 299 423
+- <synthetic>: 1 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 29 789 552 tokens
+- Start: from session transcript start (no `/opsx:propose` marker — the proposals were launched from within the session, which the `UserPromptSubmit` hook does not see)
+- Split by window, boundaries at each change's first mention, approximate because the work interleaved:
+  - 07:04 → 07:45 (41m, 73 requests): baseline reading, attribution defect, Ollama cache experiment — 7 882 751 tokens
+  - 07:45 → 08:41 (55m, 49 requests): `adopt-standard-observability`, RTK/RLM evaluation, RTK folded into `add-token-optimizations` — 10 501 951 tokens
+  - 08:41 → 08:58 (17m, 38 requests): `fix-context-attribution`, sequencing, price table, three conservative reductions — 11 189 474 tokens

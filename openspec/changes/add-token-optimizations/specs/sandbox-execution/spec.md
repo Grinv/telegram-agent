@@ -3,7 +3,7 @@
 ### Requirement: Tool execution results are structured
 The system SHALL return the outcome of each tool call as a structured result containing at minimum a success/failure flag, stdout or output content, and an error message when the tool failed, so the orchestrator can feed the result back to the LLM in a consistent format. This applies even when the requested tool name is not registered: the system SHALL NOT let that failure propagate as an unhandled error out of the sandbox executor, and other tool calls in the same batch SHALL still be attempted.
 
-A result whose content was reduced to fit the configured size limit SHALL indicate that it was truncated, so that a partial result is never presented as a complete one.
+A result whose content was reduced SHALL indicate how it was reduced, so that a partial result is never presented as a complete one: a result cut to fit the configured size limit SHALL indicate that it was truncated, and a result rewritten into a shorter form SHALL indicate that it was compressed. A result reduced in both ways SHALL indicate both.
 
 #### Scenario: Successful tool execution
 - **WHEN** a tool completes successfully and produces output
@@ -20,3 +20,7 @@ A result whose content was reduced to fit the configured size limit SHALL indica
 #### Scenario: Truncated result is marked as truncated
 - **WHEN** a tool produces output larger than the configured limit
 - **THEN** the result indicates that its content was truncated, and is not presented as the tool's complete output
+
+#### Scenario: Compressed result is marked as compressed
+- **WHEN** a shell command's output is rewritten into a shorter form before it reaches the orchestrator
+- **THEN** the result indicates that its content was compressed, and is not presented as the command's verbatim output

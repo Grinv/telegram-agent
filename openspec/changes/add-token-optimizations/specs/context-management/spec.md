@@ -21,6 +21,31 @@ Truncation SHALL preserve the beginning of the result, and MAY additionally pres
 - **WHEN** the model receives a truncated result and issues a narrower request
 - **THEN** the narrower request is executed normally and its result is subject to the same limit
 
+### Requirement: Shell command output is compressed before it enters the conversation
+The system SHALL compress the output of a shell command before that output enters the conversation, reducing it to what the output means — noise filtered out, repeated lines collapsed, long listings summarised — rather than carrying every line verbatim.
+
+A compressed result SHALL state that it was compressed, so the model can tell a summary from the command's literal output and can ask for the literal output when it needs it. A summary the model mistakes for verbatim text is worse than no summary, because it will reason confidently over something the command never said.
+
+Compression SHALL apply to shell command output only. The result of a tool that does not run a shell command SHALL be passed through unchanged by this requirement, and remains subject to the tool-result limit.
+
+Compression and the tool-result limit SHALL compose in that order: output is compressed first, and the configured limit then applies to the compressed result. A compressed result that still exceeds the limit SHALL be truncated as any other oversized result is, and SHALL disclose both that it was compressed and that it was truncated.
+
+#### Scenario: Verbose command output is compressed
+- **WHEN** a shell command produces output that compresses — repeated lines, a long listing, or output dominated by noise
+- **THEN** the conversation receives the compressed form together with an indication that it was compressed
+
+#### Scenario: Compressed output is not presented as verbatim
+- **WHEN** the model receives a compressed command result
+- **THEN** the result identifies itself as compressed rather than appearing to be the command's literal output
+
+#### Scenario: A non-shell tool result is not compressed
+- **WHEN** a tool that does not run a shell command produces a result
+- **THEN** that result is not compressed, and the tool-result limit still applies to it
+
+#### Scenario: Compressed output that is still oversized
+- **WHEN** a shell command's output remains larger than the configured maximum after compression
+- **THEN** the result is truncated as well, and states both that it was compressed and that it was truncated
+
 ### Requirement: File reads can be bounded to a range
 The system SHALL allow a request to read a file to specify a range of lines, and SHALL return only that range. A request that specifies no range SHALL continue to return the file, subject to the tool-result limit.
 
@@ -58,6 +83,51 @@ Compaction SHALL affect only what is sent to the model. The stored conversation 
 #### Scenario: A fact from a compacted turn is still available
 - **WHEN** a conversation is compacted and a later user message refers to something stated in a turn that was summarized
 - **THEN** the agent can still answer from the summary
+
+### Requirement: A capability is advertised to the model under one name
+The system SHALL NOT advertise the same capability to the model under more than one tool name. Where one advertised tool's behaviour is a special case of another's, only the general one SHALL be advertised, and the special case SHALL remain reachable through it.
+
+Removing a name from what is advertised SHALL NOT remove a capability: everything the model could do before SHALL still be doable, through the tool that remains.
+
+#### Scenario: A single sub-task is still possible
+- **WHEN** the model needs to run one independent sub-task
+- **THEN** it can do so through the tool that runs several, by requesting one, and the sub-task runs exactly as it would have under a dedicated single-task tool
+
+#### Scenario: The redundant name is not advertised
+- **WHEN** the tools advertised to the model are assembled
+- **THEN** they contain no tool whose behaviour is a special case of another advertised tool's
+
+#### Scenario: Every remaining capability is still advertised
+- **WHEN** the advertised tools are compared against the capabilities the agent has
+- **THEN** every capability is reachable through some advertised tool, and no argument of a remaining tool has been removed
+
+### Requirement: Advertised tool definitions carry no text that restates the schema
+The system SHALL NOT include, in a tool definition advertised to the model, description text whose content is already carried by the schema itself — an argument's name and type. Description text that states something the model could not infer from the name and type, such as a constraint on the value, SHALL be kept.
+
+Every advertised tool SHALL keep its name, its arguments and which of them are required, unchanged. This requirement removes wording, never capability.
+
+#### Scenario: A description that only restates the argument is removed
+- **WHEN** an argument's description says only what its name and type already say
+- **THEN** that description is absent from the advertised definition
+
+#### Scenario: A description that carries a constraint is kept
+- **WHEN** an argument's description states a constraint the model could not infer from the argument's name and type
+- **THEN** that description is present in the advertised definition
+
+#### Scenario: Arguments survive the removal of wording
+- **WHEN** the advertised definitions are compared against the tools they describe
+- **THEN** every tool advertises the same argument names, the same types, and the same required arguments as before
+
+### Requirement: The agent's instructions do not repeat what the tool definitions say
+The system SHALL NOT repeat, in its instruction text, information already carried by the tool definitions sent alongside it. Instruction text SHALL state what the tool definitions cannot: how the agent should behave, not what each tool does.
+
+#### Scenario: A fact stated by the tool definitions is not restated
+- **WHEN** the instruction text and the tool definitions are assembled for a request
+- **THEN** the instruction text does not restate a fact that every tool definition already carries
+
+#### Scenario: Behavioural guidance is retained
+- **WHEN** the instruction text is shortened
+- **THEN** the guidance that governs how the agent answers, and the direction to consult a skill before attempting a task it covers, are still present
 
 ### Requirement: The unchanging part of a request is byte-identical across calls
 The system SHALL assemble the leading, unchanging part of every request — the agent's instructions and the skill index — identically on every call, so that a provider able to reuse a repeated prefix is not prevented from doing so by incidental variation. This part SHALL NOT contain values that change between calls, such as timestamps, identifiers, or content in a varying order.
