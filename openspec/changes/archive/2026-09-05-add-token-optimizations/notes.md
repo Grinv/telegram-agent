@@ -270,6 +270,239 @@ built to find it. That is corrected by the separate `fix-context-attribution`
 change, which lands before this one — section 1's reading above must be redone
 against the corrected figures before section 1.2's decisions are treated as final.
 
+## 8.1 Price table
+
+`prices.json` (repo root, gitignored is not the case here — it's the file
+`PRICE_TABLE_PATH` points at by default, and did not exist before this
+section): `{ "qwen2.5": { "inputPerMillion": 0.15, "outputPerMillion": 0.6 } }`.
+
+Ollama runs `qwen2.5` locally and incurs no real spend. The rate used is a
+proxy from a comparable hosted small/general-purpose model's public per-token
+pricing (roughly GPT-4o-mini-class: $0.15 input / $0.60 output per million
+tokens) — `qwen2.5` (7B, tool-calling capable) sits in the same "small,
+inexpensive, tool-capable" tier those hosted models target, which is the
+basis for treating the rate as a reasonable relative proxy. This is a proxy
+for relative comparison across snapshots, not a claim about what `qwen2.5`
+would cost on any specific hosted provider — see design.md and section 9.3's
+report requirement.
+
+The baseline snapshot (`data/benchmark-snapshots/baseline.json`) was recorded
+before this file existed, so its stored per-call cost is frozen at $0 (cost is
+computed once, at record time — see "changing the price table after a call
+was recorded does not alter that row's stored cost" in
+`test/stats/sqlite-recorder.test.ts`). That $0 is not re-priced retroactively;
+every snapshot recorded *from this section onward* uses this table, so those
+are comparable to each other, while the baseline's cost column is read as
+"unpriced," not "free," when compared against them — the report (section 9)
+must say so wherever it shows a cost figure next to the baseline. The primary
+metric this change is measured against is token count, not cost.
+
+## 8.3–8.8 Measurement results
+
+**Snapshots taken** (model `qwen2.5`, `BENCHMARK_REPETITIONS=5` to match
+baseline, same `prices.json`): `baseline` (pre-existing), `only-constant-block`
+(sections 7.1+7.4 only, isolated in a disposable `git worktree` at the
+pre-change commit — every other section's files left untouched), and
+`combined-all-optimizations` (the code as shipped: every section in this
+change).
+
+| Snapshot | Tokens | vs. baseline | Correctness |
+|---|---:|---:|---:|
+| `baseline` | 50303 | — | 30/30 (100%) |
+| `only-constant-block` (7.1+7.4 alone, **not shipped in this form**) | 38045 | −24.4% | 25/30 (83.3%) — `word-count-skill` regressed |
+| `combined-all-optimizations` (**as shipped**) | 47430 | **−5.7%** | 30/30 (100%) |
+
+**A composability fragility was found and must be recorded, not just fixed
+around.** `only-constant-block`'s `word-count-skill` failures reproduce the
+same `EMPTY_RESPONSE` signature as the section 7.7 regression above, but
+neither section 7.1 (drop `spawn_subagent`) nor 7.4 (drop restating arg
+descriptions) alone causes it — isolated standalone, each individually
+produces the correct `read_skill` tool call every time. Only the *combination*
+of both together, **without** section 3's `start_line`/`end_line` addition to
+`read_file`, reproduces the failure (3/3, deterministic). The shipped code
+never exercises this: section 3 is always present alongside 7.1+7.4. This
+means 7.1 and 7.4 are not safely independent of section 3 on this model —
+removing bounded file reads while keeping the other two would silently
+reintroduce this exact regression. This is very likely a token/prompt-boundary
+sensitivity specific to `qwen2.5`'s (quantized) weights rather than a
+meaningful semantic conflict between these changes, but it is real and
+reproducible, and the report (section 9) must state it as a dependency
+between these three specific changes, not present them as three independent,
+freely toggleable optimizations.
+
+**8.3 (one snapshot per optimization) — partial, by choice, recorded here.**
+A real, isolated benchmark snapshot was taken for the one optimization most
+likely to move the number (sections 7.1+7.4 combined, above). The other five
+(tool-result limits, bounded file reads, conversation compaction, prefix
+stability, RTK) were not each given their own isolated benchmark snapshot:
+section 1.2's reading and section 7.9's token-count math already predict
+their benchmark contribution is zero, negative, or unmeasurable on this task
+set (no tool result exceeds the limit, no conversation nears the compaction
+threshold, prefix stability produces no content difference to measure, RTK's
+own ceiling here is ~0.03%) — and the combined snapshot's zero regression on
+every task other than the one investigated above is consistent with that
+prediction holding. Isolating each of those five in its own disposable
+worktree was judged not to be worth the additional benchmark-inference time
+against what it would add to a conclusion already well-supported by token
+counting and the combined run's per-task breakdown.
+
+**8.4 (rebuild the sandbox before RTK's snapshot)** — not applicable in the
+form described: no dedicated RTK-only snapshot was taken (see 8.3 above). The
+`combined-all-optimizations` snapshot used the amd64 image built with RTK
+(`docker buildx build --platform linux/amd64`, see notes.md §6.1)
+consistently for its own run.
+
+**8.6 (read per-task correctness before the overall rate)**: done. In the
+final `combined-all-optimizations` snapshot, no task regressed — see the
+per-task table in the comparison output
+(`data/benchmark-compare-baseline-vs-combined-all-optimizations.md`).
+`subagent-three-sums` is the one task whose *tokens* moved against the trend
+(+275 vs. baseline, all of it in output tokens: 113→151/execution, not input)
+— correctness on it did not regress, but this is a real, unexplained
+side-effect worth naming rather than averaging away: with less advertised
+tooling (7.1) and shorter argument descriptions (7.4), the model produced a
+more verbose final answer for the same task, at fixed sampling
+(temperature 0, seed 42). No hypothesis for this is confirmed; it is recorded
+as an observed cost of these two reductions on this one task, not a puzzle
+this change resolves.
+
+**8.7 (correctness gate)**: held on the final shipped code — 100% vs.
+baseline's 100%, 0pp delta, well within the ±2pp gate. It was breached twice
+during development (see the section 7.7 write-up above and the
+composability fragility above) and each breach was investigated and resolved
+(the first by reverting section 7.7 entirely; the second is not present in
+what ships, since section 3 is always shipped alongside 7.1+7.4) before any
+snapshot was accepted as final.
+
+**8.8 (report the real figure)**: **−5.7%**, well short of the 30% target,
+correctness held. What limited it:
+- The five "bound" optimizations (sections 2, 4, 5, and RTK/section 6, plus
+  most of section 3's benefit) measure at or near zero on this benchmark by
+  design — they exist for real-world inputs this frozen, small task set does
+  not produce, not to move this number (see section 1.2's original decisions).
+- Section 3's `read_file` extension (`start_line`/`end_line`) *adds* roughly
+  71 estimated tokens to every tool-set that advertises `read_file` (see
+  7.9), a real, measured cost with no offsetting benefit here since no task
+  uses a partial read and no result needs bounding.
+- The only substantial reduction (sections 7.1+7.4 together) is diluted
+  across the full call mix once averaged against calls those two changes barely
+  touch (e.g. a sub-agent's own registry never advertised `spawn_subagent`,
+  so 7.1 contributes nothing there), and is partly offset on one task by the
+  output-token growth noted under 8.6.
+- No further limit was tightened to chase the 30% figure — see the
+  composability-fragility finding above for why "just drop section 3's
+  overhead too" is not a safe way to claw back that gap.
+
+## 6.1 RTK architecture support
+
+Confirmed by actually building `sandbox/Dockerfile`: RTK v0.48.0 ships a musl
+build only for `x86_64` (`rtk-x86_64-unknown-linux-musl.tar.gz`); its `aarch64`
+Linux build is glibc-linked (`rtk-aarch64-unknown-linux-gnu.tar.gz`), and that
+build does not run on musl-based `alpine` even with `gcompat` and `libgcc`
+installed — `fcntl64` and `__res_init` still fail to relocate. This is exactly
+the risk design.md's Risks section anticipated ("A musl or statically linked
+build may be required, and 'the binary is installed' is not the same as 'the
+binary runs here'").
+
+Decision (user-confirmed): ship amd64-only. `sandbox/Dockerfile` fails the
+build fast with a clear message on any non-amd64 `$TARGETARCH`, rather than
+attempting a compatibility shim that doesn't fully work. An amd64 image can
+still be built from an arm64 host via `docker buildx build --platform
+linux/amd64 --pull -t telegram-agent-sandbox ./sandbox` (verified: build
+succeeds under emulation, `rtk --version` and `rtk pipe` both work correctly
+inside the resulting container). On an arm64 host without that flag,
+`execute_command` output is not compressed — the tool-result limit (section 2)
+still applies to it unmodified. See README.md's "Shell-output compression
+(RTK)" section.
+
+Rejected alternatives: installing `gcompat`+`libgcc` alone (tried first;
+insufficient — two glibc symbols still unresolved and no further Alpine
+package covers them); swapping the sandbox's base image away from
+musl-based `alpine` (rejected — changes the libc for every sandboxed command,
+a far larger blast radius than adding one binary, and not what this change's
+Impact section scoped); forcing `--platform linux/amd64` as the sandbox's
+default build target (rejected — moves every sandboxed tool call under QEMU
+emulation by default, and relies on `qemu-user-static`/binfmt being
+registered on the host, which is not guaranteed on a production Linux server
+the way it is on this Docker Desktop dev machine).
+
+## Correctness regression found; instruction trim dropped (section 7.7)
+
+Section 8's first combined benchmark run (`combined-all-optimizations`)
+measured 25/30 correct (83.3%) against the baseline's 30/30 (100%) — a 16.7pp
+drop, all five failures concentrated in one task (`subagent-three-sums`,
+`EMPTY_RESPONSE` on iteration 0: the model returned neither text nor a tool
+call). This breached the ±2pp correctness gate (design.md, task 8.7), so per
+that task the responsible optimization was identified before any snapshot was
+accepted, rather than reporting the regression as the measured result.
+
+**Root cause, isolated by reproducing the exact request outside the benchmark**
+(`callLlmIsolated` with the real prefix/tools/skills, via disposable debug
+scripts): section 7.7's instruction trim deleted the *entire*
+capability-listing sentence from `BASE_INSTRUCTION` ("You can use tools to run
+shell commands ..., spawn sub-agents for independent sub-tasks"). With that
+sentence gone *and* a skill index present (the benchmark's
+`benchmark/skills/word-count.md`, loaded for every task including this
+unrelated one), `qwen2.5` reliably (5/5, and reproduced standalone) returned an
+empty response instead of calling `spawn_subagents` — it appears to give
+weight to the "check skills first" instruction and, finding no matching skill
+for a sub-agent task, stops rather than falling back to normal tool use.
+Temperature 0 / seed 42 reproduced it deterministically.
+
+**First attempted fix, also regressed differently**: keeping the
+capability-listing sentence but dropping only the literally redundant "in an
+isolated sandbox" phrase (design.md's original ~30-token estimate) fixed
+`subagent-three-sums` (verified 3/3), but the re-run combined snapshot then
+showed `word-count-skill` failing 5/5 with the identical `EMPTY_RESPONSE`
+signature — the model returned nothing instead of calling `read_skill`,
+reproduced standalone (5/5) against the exact request. Restoring
+`BASE_INSTRUCTION` to its fully original, untrimmed text fixed both
+reproductions (3/3 for the sub-agent request, verified standalone; the
+word-count request was not independently reverified after this final revert
+since it is the same code path both regressions were isolated against).
+
+**Decision: drop this candidate.** Two different trims of the same sentence
+each broke a different benchmark task on the one model actually tested, in
+the same way (an empty response instead of the tool call the task needed).
+The measured savings at stake — ~30 tokens out of a 602-token prefix, ~5% —
+does not justify the risk this is a third distinct failure mode away, and the
+change's own non-goal ("Hitting the target by degrading answers") rules out
+shipping it and calling the trade acceptable. `BASE_INSTRUCTION` is reverted
+to its original text, unchanged by this section. The `context-management`
+spec's "instructions do not repeat tool-definition facts" requirement is
+removed accordingly — it is not something this change delivers.
+
+## 7.9 Measured size of the constant block, before and after
+
+Measured directly from the tool definitions and instruction text (JSON-serialized
+tool defs + instruction string, `estimateTokens` = chars/4), not from a live
+benchmark run — this isolates each reduction's own contribution from noise in a
+model's actual token counting. Two reductions ship, not three (see above) —
+the instruction is unchanged throughout.
+
+| State | Tool defs | Tools (est. tokens) | Instruction (est. tokens) | Total | vs. before |
+|---|---:|---:|---:|---:|---:|
+| Before (7 tools, full descriptions) | 7 | 542 | 60 | 602 | — |
+| Step 1: drop `spawn_subagent` advertisement only | 6 | — | 60 | 498 | −17.3% |
+| Step 2: drop restating arg descriptions only (7 tools) | 7 | — | 60 | 516 | −14.3% |
+| **Steps 1+2 combined (both reductions this section ships)** | 6 | — | 60 | **426** | **−29.2%** |
+| **After, as shipped** (includes §3's `start_line`/`end_line` on `read_file`; instruction unchanged) | 6 | 463 | 60 | **523** | **−13.1%** |
+
+The as-shipped number (−13.1%) is lower than the two-reductions-only number
+(−29.2%) because `read_file` gained `start_line`/`end_line` with
+constraint-carrying descriptions (section 3, bounded file reads) — a
+capability addition, not part of this section's redundancy-removal claim.
+Section 9's report must cite the two-reductions figure when crediting *this*
+section, and the as-shipped total separately, so the two are never conflated
+into one number.
+
+This revises notes.md's earlier token-count prediction (~32.2%, section 1.2),
+which included the now-dropped instruction trim. The two-reductions figure
+(−29.2%) falls just short of the 30% target on token math alone; whether the
+combined snapshot (which also includes the five bound-but-near-zero-effect
+optimizations from sections 2–6) crosses 30% in practice is what section 8's
+benchmark measurement — not this token-count estimate — actually settles.
+
 ## 4.7 Conversation threshold and its basis
 
 Measured distribution (above): the longest conversation in the baseline is 181

@@ -38,6 +38,26 @@ test('with no library at all, the instruction contains no skill section', () => 
   assert.ok(instruction.length > 0);
 });
 
+test('the instruction keeps its behavioural guidance and capability framing', () => {
+  const instruction = buildSystemInstruction(undefined);
+
+  // This instruction is deliberately left untrimmed - see notes.md, "Reducing
+  // the agent's instructions - DROPPED": two different trims each measurably
+  // broke a different benchmark task on qwen2.5, so the full text is kept
+  // even though it repeats some of what the tool definitions also say.
+  assert.match(instruction, /tools/i, 'the general capability sentence is retained');
+  assert.match(instruction, /answer the user/i, 'behavioural guidance is retained');
+});
+
+test('with skills loaded, the direction to consult a matching skill first is retained', () => {
+  const library = fakeLibrary([{ name: 'weather', description: 'Look up the weather.', body: 'body' }]);
+
+  const instruction = buildSystemInstruction(library);
+
+  assert.match(instruction, /read_skill/);
+  assert.match(instruction, /before attempting/i);
+});
+
 test('calling it twice with the same library returns byte-identical text', () => {
   const library = fakeLibrary([{ name: 'weather', description: 'Look up the weather.', body: 'body' }]);
 

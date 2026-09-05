@@ -14,11 +14,18 @@ export interface ToolCall {
   arguments: Record<string, unknown>;
 }
 
-/** Structured outcome of executing a single tool call. */
+/**
+ * Structured outcome of executing a single tool call. `truncated`/`compressed`
+ * are set (never `false`) when the tool-result limit or shell-output
+ * compression reduced `output`/`error` from what the tool itself produced -
+ * see `src/context-management/`.
+ */
 export interface ToolResult {
   ok: boolean;
   output?: string;
   error?: string;
+  truncated?: boolean;
+  compressed?: boolean;
 }
 
 /**

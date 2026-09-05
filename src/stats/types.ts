@@ -22,8 +22,15 @@ export interface MessageStats {
 /** Stats emitted after each LLM call inside the think → act → observe loop. */
 export interface LlmCallStats {
   iteration: number;
-  /** Who made this call: "main" (the loop's think step, the default), "classifier" (model routing), or "subagent" (a spawned sub-agent loop). */
-  role?: 'main' | 'classifier' | 'subagent';
+  /**
+   * Who made this call: "main" (the loop's think step, the default),
+   * "classifier" (model routing), "subagent" (a spawned sub-agent loop), or
+   * "compaction" (the summarization call conversation compaction makes when
+   * the threshold is crossed - see `src/context-management/`, whose own
+   * tokens must be counted against the triggering message rather than
+   * hidden from measurement).
+   */
+  role?: 'main' | 'classifier' | 'subagent' | 'compaction';
   /**
    * Identity of the specific agent that made this call - distinguishes
    * concurrent sub-agents from each other, unlike `role` which only says

@@ -17,7 +17,9 @@ import { logger } from './logger.js';
 import type { TelegramMessage, TelegramReplier } from './telegram/client.js';
 import type { Router } from './routing/types.js';
 import type { SkillLibrary } from './skills/types.js';
-import { buildSystemInstruction } from './system-instruction.js';
+import { buildRequestPrefix } from './context-management/prefix.js';
+import { compactConversation } from './context-management/conversation-compaction.js';
+import { DEFAULT_CONVERSATION_COMPACTION_THRESHOLD } from './context-management/defaults.js';
 import type { HistoryStore, HistoryTurn } from './history/types.js';
 
 const FAILURE_REPLY_TEXT = 'Sorry, I could not process your message right now. Please try again later.';
@@ -229,6 +231,8 @@ export interface OrchestratorDeps {
   router?: Router;
   /** When provided, its index is included in the system instruction sent with every request. */
   skillLibrary?: SkillLibrary;
+  /** Estimated-token size above which a chat's stored conversation is sent compacted rather than in full. Defaults to `DEFAULT_CONVERSATION_COMPACTION_THRESHOLD`. */
+  conversationCompactionThreshold?: number;
 }
 
 /**
@@ -275,13 +279,20 @@ export function createMessageHandler(deps: OrchestratorDeps) {
     let deliveryAttempted = false;
 
     try {
-      const systemInstruction = buildSystemInstruction(deps.skillLibrary);
+      const prefix = buildRequestPrefix(deps.toolRegistry, deps.skillLibrary);
+      const threshold = deps.conversationCompactionThreshold ?? DEFAULT_CONVERSATION_COMPACTION_THRESHOLD;
+      const { messages: conversationMessages } = await compactConversation(history.map(renderHistoryTurn), threshold, {
+        callLlm,
+        provider: deps.provider,
+        timeoutMs: deps.timeoutMs,
+        ...(deps.statsRecorder ? { statsRecorder: deps.statsRecorder } : {}),
+      });
       const messages: ChatMessage[] = [
-        { role: 'system', content: systemInstruction },
-        ...history.map(renderHistoryTurn),
+        { role: 'system', content: prefix.instruction },
+        ...conversationMessages,
         { role: 'user', content: renderUserContent(prompt, senderName) },
       ];
-      const tools = deps.toolRegistry.isEmpty() ? [] : deps.toolRegistry.getDefinitions();
+      const tools = prefix.tools;
 
       let model = deps.model;
       if (deps.router) {

@@ -5,7 +5,7 @@ Wires an incoming Telegram message to an LLM inference call and back to a reply,
 ## Requirements
 
 ### Requirement: History-aware message handling
-The system SHALL, for each incoming message, load the persisted conversation history for that chat, append the new user turn to it, and send the resulting ordered conversation to the LLM as the think → act → observe loop's message list. Within a single message's handling, the system MAY still run a multi-step think → act → observe loop (LLM call, tool execution, observation fed back); intermediate tool-call/observation messages from that loop SHALL NOT be persisted to the chat's history — only the final user turn and the final assistant reply are persisted.
+The system SHALL, for each incoming message, load the persisted conversation history for that chat, append the new user turn to it, and send the resulting ordered conversation to the LLM as the think → act → observe loop's message list. When that conversation exceeds the configured size, the system SHALL send it compacted rather than in full, as described by the `context-management` capability; the stored conversation is unaffected. Within a single message's handling, the system MAY still run a multi-step think → act → observe loop (LLM call, tool execution, observation fed back); intermediate tool-call/observation messages from that loop SHALL NOT be persisted to the chat's history — only the final user turn and the final assistant reply are persisted.
 
 The agent's own generated instructions SHALL NOT be persisted as conversation history, and SHALL be assembled from current configuration for each request rather than replayed from storage, so that changing the agent's instructions takes effect on the next message rather than being frozen into past conversations.
 
@@ -30,6 +30,10 @@ An assistant reply SHALL be persisted only once it has been delivered to the cha
 #### Scenario: Undelivered reply is not persisted
 - **WHEN** the agent produces a final answer for a message but delivering it to the chat fails
 - **THEN** the chat's persisted history contains the user's turn and no assistant turn for that exchange
+
+#### Scenario: Conversation past the configured size is sent compacted
+- **WHEN** a chat's stored conversation exceeds the configured size and a new message is handled
+- **THEN** the request sent to the LLM carries a compacted conversation rather than every stored turn, while the stored conversation remains complete
 
 ### Requirement: The /new command starts a fresh conversation
 The system SHALL recognize an incoming message whose text is exactly `/new` as a command rather than a message to forward to the LLM. On receiving it, the system SHALL clear the persisted conversation history for that chat and reply with a confirmation message, without invoking the LLM or the think → act → observe loop for that message.

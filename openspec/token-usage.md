@@ -217,3 +217,14 @@ Adopted OpenTelemetry trace export (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT) alon
 - <synthetic>: 3 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
 - Total: 105 728 247 tokens
 - Start: from change file creation time
+
+## 2026-09-05 — add-token-optimizations
+
+Implemented context-management (tool-result limits, bounded file reads, conversation compaction, prefix stability, RTK shell-output compression), reduced advertised-tool redundancy, and measured the combined effect on the benchmark: -5.7% tokens with correctness held at 100%, short of the 30% target with reasons documented.
+
+- Time: 66h 4m total, model time 0s (lower bound — Claude Code turns are not included; its logs don't record per-message duration), 2026-09-02 23:53 → 2026-09-05 17:58
+- claude-sonnet-5: 2 231 requests, duration n/a, in 4 461 / out 1 457 196 (reasoning 646 918) / cache write 5 338 114 / cache read 509 014 135
+- claude-opus-5: 479 requests, duration n/a, in 958 / out 418 455 (reasoning 143 684) / cache write 1 502 458 / cache read 101 035 022
+- <synthetic>: 6 requests, duration n/a, in 0 / out 0 / cache write 0 / cache read 0
+- Total: 618 770 799 tokens
+- Start: from change file creation time

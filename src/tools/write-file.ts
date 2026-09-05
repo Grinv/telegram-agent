@@ -4,8 +4,8 @@ import type { Tool } from './types.js';
 const PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {
-    path: { type: 'string', description: 'Path to the file to write' },
-    content: { type: 'string', description: 'The text content to write to the file' },
+    path: { type: 'string' },
+    content: { type: 'string' },
   },
   required: ['path', 'content'],
 };

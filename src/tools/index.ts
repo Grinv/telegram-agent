@@ -38,15 +38,21 @@ export function createDefaultToolRegistry(): ToolRegistry {
 
 /**
  * Factory: a fresh `ToolRegistry` with the default tools, plus
- * `spawn_subagent`/`spawn_subagents` when `context` carries what they need
- * (`runLoop` and `callLlm`) to run nested loops, plus `read_skill` when
- * `context` carries a `skillLibrary`. Lets the same wiring code path work
- * whether or not each capability is configured.
+ * `spawn_subagents` when `context` carries what it needs (`runLoop` and
+ * `callLlm`) to run nested loops, plus `read_skill` when `context` carries a
+ * `skillLibrary`. Lets the same wiring code path work whether or not each
+ * capability is configured.
+ *
+ * `spawn_subagent` is deliberately not advertised here: `spawn_subagents`
+ * implements the single-task case by calling `spawnSubagentTool.execute`
+ * once, so advertising both would advertise the same capability under two
+ * names (see design.md — "The constant block is reduced by removing
+ * redundancy"). `spawnSubagentTool` itself stays in place as that
+ * implementation.
  */
 export function createSubagentToolRegistry(context: ToolContext): ToolRegistry {
   const registry = createDefaultToolRegistry();
   if (context.runLoop && context.callLlm) {
-    registry.register(spawnSubagentTool);
     registry.register(spawnSubagentsTool);
   }
   if (context.skillLibrary) {

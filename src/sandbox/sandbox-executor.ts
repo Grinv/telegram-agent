@@ -2,6 +2,8 @@ import type { ToolCall, ToolResult } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolContext, ContainerExecResult } from '../tools/types.js';
 import { createDockerExec, ensureNetworkExists, type DockerExecFn, type DockerExecResult } from './docker-cli.js';
+import { boundToolResult } from '../context-management/tool-result-limit.js';
+import { DEFAULT_TOOL_RESULT_MAX_BYTES } from '../context-management/defaults.js';
 
 export interface SandboxExecutorConfig {
   image: string;
@@ -10,6 +12,8 @@ export interface SandboxExecutorConfig {
   cpuLimit: string;
   network: 'isolated' | 'egress';
   networkName: string;
+  /** Max size (characters) a tool result may reach before it is truncated. Defaults to `DEFAULT_TOOL_RESULT_MAX_BYTES`. */
+  toolResultMaxBytes?: number;
 }
 
 /** A tool result annotated with the tool name that produced it. */
@@ -109,12 +113,13 @@ export class DockerSandboxExecutor implements SandboxExecutor {
           this.execInContainer(containerId, command, stdin),
       };
 
+      const maxBytes = this.config.toolResultMaxBytes ?? DEFAULT_TOOL_RESULT_MAX_BYTES;
       const observations: ToolObservation[] = [];
       for (const call of toolCalls) {
         try {
           const tool = registry.getTool(call.name);
           const result = await tool.execute(context, call.arguments);
-          observations.push({ ...result, name: call.name });
+          observations.push({ ...boundToolResult(result, maxBytes), name: call.name });
         } catch (error) {
           observations.push({
             name: call.name,

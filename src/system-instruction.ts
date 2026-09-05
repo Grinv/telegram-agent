@@ -1,5 +1,15 @@
 import type { SkillLibrary } from './skills/types.js';
 
+// Deliberately NOT trimmed to avoid repeating what the tool definitions
+// already say (an earlier candidate for this change - see
+// openspec/changes/add-token-optimizations/notes.md, "Reducing the agent's
+// instructions - DROPPED"). Two different trims of this text - dropping the
+// whole capability sentence, then a smaller trim keeping the sentence but
+// removing just "in an isolated sandbox" - each measurably broke a different
+// benchmark task on qwen2.5 (spawn_subagents / read_skill each returned an
+// empty response instead of being called). The full, untrimmed text is the
+// one that reliably passes every benchmark task, so it stays as-is even
+// though the tool definitions sent alongside it do repeat some of it.
 const BASE_INSTRUCTION =
   'You are an assistant integrated with a Telegram bot. You can use tools to run shell ' +
   'commands in an isolated sandbox, read and write files, list files, and spawn sub-agents ' +

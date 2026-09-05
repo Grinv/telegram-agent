@@ -1008,6 +1008,65 @@ test('runLoop returns failure when max iterations are reached', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// add-token-optimizations — conversation compaction
+// ---------------------------------------------------------------------------
+
+test('a conversation past the configured compaction threshold is sent compacted, while the stored history stays complete', async () => {
+  const historyStore = fakeHistoryStore();
+  historyStore.turnsByChat.set(1, [
+    { role: 'user', content: `padding ${'word '.repeat(400)}`, createdAt: Date.now() },
+    { role: 'assistant', content: `padding ${'word '.repeat(400)}`, createdAt: Date.now() },
+  ]);
+  const { fn: callLlm, calls } = scriptedCallLlm([
+    { ok: true, text: 'a short summary' },
+    { ok: true, text: 'final reply' },
+  ]);
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm, historyStore }),
+    client,
+    conversationCompactionThreshold: 100,
+  });
+
+  await handleMessage(fakeMessage('new message', 1));
+
+  assert.equal(calls.length, 2, 'the summarization call happens before the main request');
+  const mainRequestMessages = calls[1].messages ?? [];
+  const totalContentLength = mainRequestMessages.map((m) => m.content).join('').length;
+  const storedContentLength = historyStore
+    .getHistory(1)
+    .map((t) => t.content)
+    .join('').length;
+  assert.ok(totalContentLength < storedContentLength, 'the compacted request is smaller than the full stored history');
+  assert.ok(
+    mainRequestMessages.some((m) => m.content.includes('a short summary')),
+    'the compacted request carries the summary in place of the padded turns',
+  );
+
+  assert.equal(
+    historyStore.getHistory(1).filter((t) => t.content.startsWith('padding')).length,
+    2,
+    'the stored conversation still contains every original turn, unaffected by compaction',
+  );
+});
+
+test('a conversation within the compaction threshold is sent whole, with no summarization call', async () => {
+  const historyStore = fakeHistoryStore();
+  historyStore.turnsByChat.set(1, [{ role: 'user', content: 'hi', createdAt: Date.now() }]);
+  const { fn: callLlm, calls } = scriptedCallLlm([{ ok: true, text: 'reply' }]);
+  const client = fakeClient();
+  const handleMessage = createMessageHandler({
+    ...defaultOrchestratorDeps({ callLlm, historyStore }),
+    client,
+    conversationCompactionThreshold: 4000,
+  });
+
+  await handleMessage(fakeMessage('new message', 1));
+
+  assert.equal(calls.length, 1, 'no separate summarization call when under the threshold');
+});
+
+// ---------------------------------------------------------------------------
 // add-classifier-routing — router integration
 // ---------------------------------------------------------------------------
 

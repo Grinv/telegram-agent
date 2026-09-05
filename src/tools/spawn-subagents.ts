@@ -4,7 +4,7 @@ import { spawnSubagentTool } from './spawn-subagent.js';
 const PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {
-    tasks: { type: 'array', items: { type: 'string' }, description: 'Array of task descriptions' },
+    tasks: { type: 'array', items: { type: 'string' } },
     model: { type: 'string', description: 'Model to use for all sub-agents (optional)' },
   },
   required: ['tasks'],

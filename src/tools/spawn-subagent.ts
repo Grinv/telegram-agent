@@ -4,7 +4,7 @@ import type { Tool, ToolContext } from './types.js';
 const PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {
-    task: { type: 'string', description: 'The task description for the sub-agent' },
+    task: { type: 'string' },
     model: { type: 'string', description: 'Model to use (optional, uses classifier/default if omitted)' },
   },
   required: ['task'],

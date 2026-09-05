@@ -4,7 +4,7 @@ import type { Tool } from './types.js';
 const PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {
-    path: { type: 'string', description: 'Path to the directory to list' },
+    path: { type: 'string' },
   },
   required: ['path'],
 };

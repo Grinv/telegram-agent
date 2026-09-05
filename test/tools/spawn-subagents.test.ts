@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSubagentsTool } from '../../src/tools/spawn-subagents.js';
+import { spawnSubagentTool } from '../../src/tools/spawn-subagent.js';
 import { runLoop } from '../../src/orchestrator.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import type { ToolContext } from '../../src/tools/types.js';
@@ -134,6 +135,19 @@ test('spawn_subagents gives each of three concurrent sub-agents a distinct agent
   // "Attributable to the same task" is the recorder's job (it attributes
   // every call it receives to the currently-pending message); here we only
   // assert that all three calls reached the one shared statsRecorder.
+});
+
+test('a single sub-task requested through spawn_subagents runs exactly as it would through spawn_subagent directly', async () => {
+  const runLoopFn = scriptedRunLoop([{ ok: true, text: 'the sub-agent answer', iterations: 1 }]);
+  const context = baseContext({ runLoop: runLoopFn, maxSubagents: 3 });
+
+  const directResult = await spawnSubagentTool.execute(context, { task: 'do the one thing' });
+  const viaPlural = await spawnSubagentsTool.execute(context, { tasks: ['do the one thing'] });
+
+  assert.equal(directResult.ok, true);
+  assert.equal((directResult as { output: string }).output, 'the sub-agent answer');
+  const parsed = JSON.parse((viaPlural as { output: string }).output);
+  assert.deepEqual(parsed, ['the sub-agent answer']);
 });
 
 test('spawn_subagents notes an individual sub-agent failure without failing the whole call', async () => {

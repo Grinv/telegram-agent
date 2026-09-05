@@ -85,6 +85,7 @@ const sandboxExecutor = new DockerSandboxExecutor(
     cpuLimit: config.sandboxCpuLimit,
     network: config.sandboxNetwork,
     networkName: config.sandboxNetworkName,
+    toolResultMaxBytes: config.toolResultMaxBytes,
   },
   undefined,
   extraContext,
@@ -104,6 +105,7 @@ const runResult = await runBenchmark({
   toolRegistry,
   skillLibrary,
   maxIterations: config.toolUseMaxIterations,
+  conversationCompactionThreshold: config.conversationCompactionThreshold,
   statsRecorder,
   statsDbPath,
 });

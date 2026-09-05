@@ -59,6 +59,7 @@ export interface RunnerDeps {
    */
   statsDbPath: string;
   router?: Router;
+  conversationCompactionThreshold?: number;
 }
 
 /** Recorded outcome of one execution of one task (one repetition). */
@@ -128,6 +129,9 @@ async function runOneExecution(
     model: deps.model,
     callLlm: deps.callLlm,
     ...(deps.skillLibrary ? { skillLibrary: deps.skillLibrary } : {}),
+    ...(deps.conversationCompactionThreshold !== undefined
+      ? { conversationCompactionThreshold: deps.conversationCompactionThreshold }
+      : {}),
     statsRecorder: deps.statsRecorder,
     // `router` is intentionally never forwarded here — see RunnerDeps.router.
   });

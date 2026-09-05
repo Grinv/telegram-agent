@@ -1,5 +1,6 @@
 import type { ToolResult } from '../llm/types.js';
 import type { Tool } from './types.js';
+import { compressShellOutput } from '../context-management/shell-output-compression.js';
 
 const PARAMETERS: Record<string, unknown> = {
   type: 'object',
@@ -11,7 +12,12 @@ const PARAMETERS: Record<string, unknown> = {
 
 /**
  * `execute_command` — runs an arbitrary shell command inside the sandbox
- * container and returns stdout (on success) or stderr (on failure).
+ * container and returns stdout (on success) or stderr (on failure),
+ * compressed via RTK (see `src/context-management/shell-output-compression.ts`)
+ * when compression succeeds. A compressed result is marked `compressed:
+ * true` so it is never presented as the command's verbatim output; the
+ * tool-result limit (see `src/sandbox/sandbox-executor.ts`) is applied
+ * afterwards, to the compressed text.
  */
 export const executeCommandTool: Tool = {
   name: 'execute_command',
@@ -23,10 +29,17 @@ export const executeCommandTool: Tool = {
       return { ok: false, error: 'execute_command requires a string "command" argument' };
     }
     const exec = await context.execInContainer(command);
+    const ok = exec.exitCode === 0;
+    const rawText = ok ? exec.stdout : exec.stderr;
+
+    const compressedText = rawText ? await compressShellOutput(context.execInContainer, rawText) : undefined;
+    const text = compressedText ?? rawText;
+
     return {
-      ok: exec.exitCode === 0,
-      output: exec.stdout || undefined,
-      error: exec.exitCode === 0 ? undefined : exec.stderr || `Command exited with code ${exec.exitCode}`,
+      ok,
+      output: ok ? (text || undefined) : undefined,
+      error: ok ? undefined : text || `Command exited with code ${exec.exitCode}`,
+      ...(compressedText !== undefined ? { compressed: true } : {}),
     };
   },
 };

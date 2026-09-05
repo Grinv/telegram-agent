@@ -41,6 +41,8 @@ The LLM can request tools (run a shell command, read/write/list files) to answer
    | `CLASSIFIER_MODEL` | no | `qwen3:1.7b` | Model used to classify each message for routing. Must be pulled in Ollama. A small, text-only Qwen3 model works well here; leave empty to instead auto-select the smallest model discovered from Ollama. See [Model Routing](#model-routing). |
    | `CLASSIFIER_TIMEOUT_MS` | no | `5000` | Max time to wait for the classifier before falling back to `ROUTER_FALLBACK_MODEL`. |
    | `ROUTER_FALLBACK_MODEL` | no | empty (auto) | Model used when the classifier times out, errors, or returns an unrecognized name. Empty auto-selects the largest tool-capable model discovered (or the largest overall). |
+   | `TOOL_RESULT_MAX_BYTES` | no | `8000` | Max size (characters) a tool result may reach before it is truncated. A truncated result keeps the beginning and end and states it was truncated and how large the original was — see [Context management](#context-management). |
+   | `CONVERSATION_COMPACTION_THRESHOLD` | no | `4000` | Estimated-token size above which a chat's stored conversation is sent compacted (recent turns intact, a summary in place of earlier ones) rather than in full. The stored conversation itself is never affected. See [Context management](#context-management). |
 
    The default connector is `ollama`, so **Ollama must be reachable** (locally via `ollama serve`, or as the `ollama` container — see below) with the configured model already pulled (`ollama pull qwen2.5`, or whatever `OLLAMA_MODEL` you set), or every message will fail with a provider-error reply. Set `LLM_PROVIDER=stub` instead if you just want a placeholder reply with no LLM running.
 
@@ -86,6 +88,25 @@ There's also an **isolated deployment**, where the bot itself (not just its tool
 - **`egress`** — sandbox containers are attached to a dedicated network (`SANDBOX_NETWORK_NAME`, created automatically on first use) so tools can make outbound HTTP requests. In this mode, the agent's own containers — the LLM provider (`ollama`) and the bot itself — are **not** reachable from the sandbox, since they live on a different network (`bot-net`), and the Docker socket is never mounted into the sandbox in either mode. Enabling `egress` requires rebuilding the sandbox image first (`npm run sandbox:build`), since it's what installs the HTTP client (`curl`) the mode is meant to make useful.
 
 **Residual risk**: in `egress` mode, a container on a bridge-style Docker network can typically still address the host machine itself through the Docker gateway IP, and so could reach any service the host has bound to a network interface (for example, a locally-run Ollama on port `11434`). This is not mitigated within the regular Docker deployment — it's the reason `egress` is opt-in and off by default there. It **is** mitigated when running the [isolated (microVM) deployment](DEPLOYMENT.md#isolated-deployment-microvm-boundary): there, the "host" a sandbox can address is the isolation boundary itself, not the operator's machine, and the boundary's own egress is default-deny with explicit per-host grants — so a sandbox in `egress` mode still can't reach anything that wasn't already allowed one level up. Treat `egress` mode as something to enable inside that boundary, where its blast radius is bounded; enabling it on a bare Docker host means accepting that a sandboxed command can reach host-bound services, which should be a deliberate choice for a development machine rather than a default posture.
+
+## Context management
+
+Several limits bound what enters a request to the model, so a single message never resends or reads more than it needs:
+
+- **Tool results are bounded** (`TOOL_RESULT_MAX_BYTES`, default 8000 characters). A tool result over the limit is truncated — keeping the beginning and, where there's room, the end — and states in its own text that it was truncated and how large the original was, so the model can tell a partial result from a complete one and ask for a narrower one if needed. A result within the limit is returned unchanged.
+- **File reads can be bounded to a range** — `read_file` accepts optional `start_line`/`end_line` arguments (1-indexed, inclusive, must be given together) to read part of a file instead of the whole thing. A range starting past the end of the file reports the file's length rather than failing.
+- **Long conversations are compacted** (`CONVERSATION_COMPACTION_THRESHOLD`, default 4000 estimated tokens). Once a chat's stored history exceeds this size, the request sent to the model carries the most recent turns intact and a summary (produced by its own LLM call) in place of the earlier ones. The **stored** conversation is never affected — `/new` remains the only thing that clears it. This is a bound on unbounded chat growth, not something the benchmark or typical usage is expected to trigger regularly (see `openspec/changes/add-token-optimizations/notes.md`, once archived `openspec/changes/archive/`, for the measured basis of the default).
+- **The request prefix is stable** — the agent's instructions, the skill index, and the advertised tool definitions are assembled identically on every call (byte-identical, aside from a configuration change like adding a skill), so a provider able to reuse a repeated prompt prefix is not prevented from doing so by incidental variation. **This benefit is not directly measurable here**: Ollama reports no cache-hit statistics, so there is no number to attribute a saving to on this deployment — the requirement is kept because it costs nothing and is correct regardless, not because a measured figure backs it.
+
+### Shell-output compression (RTK)
+
+`execute_command`'s output is additionally routed through [RTK](https://github.com/rtk-ai/rtk) (`rtk pipe`, run inside the sandbox) before the tool-result limit above is applied, so verbose command output is filtered/deduplicated/summarized rather than truncated blindly. A compressed result states that it was compressed, so it's never mistaken for the command's verbatim output; if RTK is unavailable or errors, the tool silently falls back to the raw (still limit-bounded) output rather than failing the call.
+
+**Requires an amd64 sandbox image.** RTK ships no musl build for arm64 Linux, and its glibc (`gnu`) arm64 build does not run on musl-based `alpine` even with `gcompat` installed (confirmed: `fcntl64`/`__res_init` fail to relocate). `npm run sandbox:build` therefore fails fast with a clear error on an arm64 host. To build an amd64 image anyway (e.g. from an Apple Silicon dev machine, for a deployment target that is amd64), use buildx directly:
+```bash
+docker buildx build --platform linux/amd64 --pull -t telegram-agent-sandbox ./sandbox
+```
+On an arm64 host without this, `execute_command` output still goes through the tool-result limit unmodified — only the RTK compression step is skipped.
 
 ## Testing
 
@@ -264,6 +285,26 @@ Every task runs `BENCHMARK_REPETITIONS` times (default `3`) — a single run of 
 **Comparing two snapshots.** `npm run benchmark:compare -- <before> <after>` reports the change in tokens, estimated cost, and correctness rate, both overall and per task, each stated as a direction and magnitude — written to `data/benchmark-compare-<before>-vs-<after>.md`. A task whose correctness rate drops is called out individually (`regressedTasks`), so a regression concentrated in one task is visible even when it barely moves the overall rate. If the two snapshots used different models, or were produced from different task sets (i.e. `benchmark/tasks.ts` was edited between them), the comparison refuses to diff them — presenting that difference as though it were the effect of a change would be actively misleading, not just unhelpful.
 
 **Cost figures are proxies, not spend.** With a local provider (Ollama) real spend is zero; `PRICE_TABLE_PATH` (see [Statistics](#statistics)) holds the rates of comparable hosted models instead. The proportional change between two snapshots' estimated cost is meaningful for comparing "before" vs. "after" an optimization; the absolute figures are not an actual bill.
+
+### Token optimizations: before/after
+
+The [Context management](#context-management) limits above were measured against this benchmark, model `qwen2.5`, `BENCHMARK_REPETITIONS=5` to match the baseline. **Cost figures throughout are a proxy** computed from the rates of a comparable hosted model (`prices.json`, ~$0.15/$0.60 per million input/output tokens) — Ollama runs `qwen2.5` locally and spends nothing; the dollar figures below are for relative comparison only, never a bill (see `openspec/changes/add-token-optimizations/notes.md`, once archived `openspec/changes/archive/`, for the full rate rationale).
+
+| Snapshot | Tokens | vs. baseline | Correctness |
+| --- | ---: | ---: | ---: |
+| `baseline` | 50303 | — | 30/30 (100%) |
+| Sections 7.1+7.4 alone (not shipped in isolation — see below) | 38045 | −24.4% | 25/30 (83.3%) |
+| **All optimizations combined (as shipped)** | 47430 | **−5.7%** | **30/30 (100%)** |
+
+**Result: a 5.7% reduction, correctness fully held — short of the 30% target.** No task regressed in the combined, as-shipped snapshot. What limited the reduction:
+
+- **Five of the seven candidates measure at or near zero on this benchmark by design**, not by omission: tool-result limits and bounded file reads bound failure modes this small, checkable task set never triggers (no tool result exceeds 462 bytes); conversation compaction bounds unlimited real-chat growth this task set doesn't produce (longest conversation: 181 estimated tokens, far under the 4000-token threshold); prefix stability changes nothing about request *content*, only its byte-for-byte consistency call to call, so it has no token count to move; RTK's own ceiling here is ~0.03% of input (`execute_command` produced 15 tokens of output across the whole baseline). All five are kept anyway, as bounds on real-world inputs this benchmark doesn't represent, not as contributors to this figure.
+- **Bounded file reads has a real, measured *cost* here**: adding `start_line`/`end_line` to `read_file`'s advertised schema costs roughly 71 estimated tokens on every call whose tool set includes it, with no offsetting benefit on this task set (no task needs a partial read).
+- **The one substantial reduction — no longer advertising `spawn_subagent` and dropping argument descriptions that only restate the schema — measures −24.4% in isolation**, but diluted once averaged against the full call mix (e.g. a sub-agent's own tool set never advertised `spawn_subagent` in the first place, so that part of the saving doesn't apply there) and partly offset by an unexplained increase in *output* tokens on the sub-agent task (113→151 estimated tokens/execution, at fixed sampling) that this change does not have a confirmed cause for.
+- **A candidate was tried and reverted after it regressed correctness**: trimming the agent's system instruction to stop repeating what the tool definitions already say (e.g. "inside the sandbox") reliably made `qwen2.5` return an empty response instead of the tool call a task needed — twice, in two different ways, on two different tasks. The instruction ships unchanged.
+- **A composability caveat, not a fourth reduction**: the shipped "no longer advertising `spawn_subagent`" and "drop restating argument descriptions" changes are only safe together *because* bounded file reads is always present alongside them — isolated together without it, the same empty-response failure reappears on a different task (`word-count-skill`). These three are not independently toggleable on this model.
+
+None of this was worked around by tightening a limit until 30% appeared; the real figure is reported as measured.
 
 ## Adding a new LLM connector
 

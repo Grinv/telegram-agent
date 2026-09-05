@@ -4,6 +4,7 @@ import { DockerSandboxExecutor } from '../../src/sandbox/sandbox-executor.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import type { DockerExecFn, DockerExecResult } from '../../src/sandbox/docker-cli.js';
 import type { Tool } from '../../src/tools/types.js';
+import { readFileTool } from '../../src/tools/read-file.js';
 
 const CONFIG = {
   image: 'telegram-agent-sandbox',
@@ -230,6 +231,94 @@ test('auto-kill timer stops the container if it outlives the configured timeout'
   } finally {
     mock.timers.reset();
   }
+});
+
+test('a tool result larger than the configured limit is truncated and marked as such', async () => {
+  const bigOutput = 'x'.repeat(500);
+  const { fn } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor({ ...CONFIG, toolResultMaxBytes: 100 }, fn);
+  const registry = new ToolRegistry();
+  registry.register({
+    name: 'big_tool',
+    description: 'Returns a large result',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return { ok: true, output: bigOutput };
+    },
+  });
+
+  const [observation] = await executor.execute([{ name: 'big_tool', arguments: {} }], registry);
+
+  assert.equal(observation.truncated, true);
+  assert.ok(observation.output!.length < bigOutput.length);
+});
+
+test('a tool result within the configured limit is untouched, with no truncation indication', async () => {
+  const { fn } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor({ ...CONFIG, toolResultMaxBytes: 100 }, fn);
+  const registry = registryWithEchoTool();
+
+  const [observation] = await executor.execute(
+    [{ name: 'execute_command', arguments: { command: 'echo hi' } }],
+    registry,
+  );
+
+  assert.equal(observation.output, 'tool output');
+  assert.equal('truncated' in observation, false);
+});
+
+test('a narrower follow-up call after a truncation executes normally and is subject to the same limit', async () => {
+  const { fn } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor({ ...CONFIG, toolResultMaxBytes: 100 }, fn);
+  const registry = new ToolRegistry();
+  registry.register({
+    name: 'variable_tool',
+    description: 'Returns whatever size argument requests',
+    parameters: { type: 'object', properties: { size: { type: 'number' } } },
+    async execute(_context, args) {
+      return { ok: true, output: 'y'.repeat(args.size as number) };
+    },
+  });
+
+  const [big] = await executor.execute([{ name: 'variable_tool', arguments: { size: 500 } }], registry);
+  assert.equal(big.truncated, true);
+
+  const [narrow] = await executor.execute([{ name: 'variable_tool', arguments: { size: 20 } }], registry);
+  assert.equal('truncated' in narrow, false);
+  assert.equal(narrow.output, 'y'.repeat(20));
+});
+
+test('a compressed result that is still oversized is truncated too, and both reductions are disclosed', async () => {
+  const { fn } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor({ ...CONFIG, toolResultMaxBytes: 50 }, fn);
+  const registry = new ToolRegistry();
+  registry.register({
+    name: 'compressed_tool',
+    description: 'Returns a result already marked compressed, but still large',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return { ok: true, output: 'c'.repeat(200), compressed: true };
+    },
+  });
+
+  const [observation] = await executor.execute([{ name: 'compressed_tool', arguments: {} }], registry);
+
+  assert.equal(observation.compressed, true);
+  assert.equal(observation.truncated, true);
+});
+
+test('a non-shell tool (read_file) is never marked compressed, and the tool-result limit still applies to it', async () => {
+  const { fn } = fakeDockerExec();
+  const executor = new DockerSandboxExecutor({ ...CONFIG, toolResultMaxBytes: 100 }, fn);
+  const registry = new ToolRegistry();
+  registry.register(readFileTool);
+
+  const [observation] = await executor.execute([{ name: 'read_file', arguments: { path: '/work/file.txt' } }], registry);
+
+  assert.equal('compressed' in observation, false);
+  // fakeDockerExec's "exec" branch returns 'tool output' (12 chars), well
+  // within the 100-char limit here, so the limit applies without tripping.
+  assert.equal('truncated' in observation, false);
 });
 
 test('removeSandbox clears the auto-kill timer so it does not fire later', async () => {

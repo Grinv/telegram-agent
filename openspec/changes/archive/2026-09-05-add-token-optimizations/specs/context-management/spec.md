@@ -118,19 +118,8 @@ Every advertised tool SHALL keep its name, its arguments and which of them are r
 - **WHEN** the advertised definitions are compared against the tools they describe
 - **THEN** every tool advertises the same argument names, the same types, and the same required arguments as before
 
-### Requirement: The agent's instructions do not repeat what the tool definitions say
-The system SHALL NOT repeat, in its instruction text, information already carried by the tool definitions sent alongside it. Instruction text SHALL state what the tool definitions cannot: how the agent should behave, not what each tool does.
-
-#### Scenario: A fact stated by the tool definitions is not restated
-- **WHEN** the instruction text and the tool definitions are assembled for a request
-- **THEN** the instruction text does not restate a fact that every tool definition already carries
-
-#### Scenario: Behavioural guidance is retained
-- **WHEN** the instruction text is shortened
-- **THEN** the guidance that governs how the agent answers, and the direction to consult a skill before attempting a task it covers, are still present
-
 ### Requirement: The unchanging part of a request is byte-identical across calls
-The system SHALL assemble the leading, unchanging part of every request — the agent's instructions and the skill index — identically on every call, so that a provider able to reuse a repeated prefix is not prevented from doing so by incidental variation. This part SHALL NOT contain values that change between calls, such as timestamps, identifiers, or content in a varying order.
+The system SHALL assemble the leading, unchanging part of every request — the agent's instructions, the skill index, and the advertised tool definitions — identically on every call, so that a provider able to reuse a repeated prefix is not prevented from doing so by incidental variation. This part SHALL NOT contain values that change between calls, such as timestamps, identifiers, or content in a varying order.
 
 #### Scenario: Prefix is identical between two calls
 - **WHEN** two requests are assembled under the same configuration, in the same process or in different ones

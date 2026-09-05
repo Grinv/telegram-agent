@@ -1,4 +1,8 @@
 import { KNOWN_PROVIDERS } from './llm/connector-registry.js';
+import {
+  DEFAULT_TOOL_RESULT_MAX_BYTES,
+  DEFAULT_CONVERSATION_COMPACTION_THRESHOLD,
+} from './context-management/defaults.js';
 
 export interface AppConfig {
   telegramBotToken: string;
@@ -25,6 +29,8 @@ export interface AppConfig {
   maxSubIterations: number;
   skillsDir: string;
   otelExporterOtlpEndpoint: string | undefined;
+  toolResultMaxBytes: number;
+  conversationCompactionThreshold: number;
 }
 
 export class ConfigError extends Error {}
@@ -220,6 +226,28 @@ export function resolveOtelExporterOtlpEndpoint(raw: string | undefined): string
   return raw || undefined;
 }
 
+/** Pure: resolves TOOL_RESULT_MAX_BYTES (must be a positive integer). */
+export function resolveToolResultMaxBytes(raw: string | undefined): number {
+  const value = Number(raw ?? DEFAULT_TOOL_RESULT_MAX_BYTES);
+  if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
+    throw new ConfigError(
+      `TOOL_RESULT_MAX_BYTES must be a positive integer (got "${raw ?? String(DEFAULT_TOOL_RESULT_MAX_BYTES)}")`
+    );
+  }
+  return value;
+}
+
+/** Pure: resolves CONVERSATION_COMPACTION_THRESHOLD (must be a positive integer). */
+export function resolveConversationCompactionThreshold(raw: string | undefined): number {
+  const value = Number(raw ?? DEFAULT_CONVERSATION_COMPACTION_THRESHOLD);
+  if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) {
+    throw new ConfigError(
+      `CONVERSATION_COMPACTION_THRESHOLD must be a positive integer (got "${raw ?? String(DEFAULT_CONVERSATION_COMPACTION_THRESHOLD)}")`
+    );
+  }
+  return value;
+}
+
 export function loadConfig(): AppConfig {
   try {
     process.loadEnvFile();
@@ -252,5 +280,7 @@ export function loadConfig(): AppConfig {
     maxSubIterations: resolveMaxSubIterations(process.env.MAX_SUB_ITERATIONS),
     skillsDir: resolveSkillsDir(process.env.SKILLS_DIR),
     otelExporterOtlpEndpoint: resolveOtelExporterOtlpEndpoint(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
+    toolResultMaxBytes: resolveToolResultMaxBytes(process.env.TOOL_RESULT_MAX_BYTES),
+    conversationCompactionThreshold: resolveConversationCompactionThreshold(process.env.CONVERSATION_COMPACTION_THRESHOLD),
   };
 }

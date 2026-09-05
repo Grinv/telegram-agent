@@ -28,7 +28,7 @@ test('createSubagentToolRegistry registers only the base 4 tools when runLoop/ca
   assert.deepEqual(names, ['execute_command', 'list_files', 'read_file', 'write_file']);
 });
 
-test('createSubagentToolRegistry also registers spawn tools when runLoop and callLlm are present', () => {
+test('createSubagentToolRegistry registers spawn_subagents (but not spawn_subagent) when runLoop and callLlm are present', () => {
   const fakeCallLlm = async (_req: LlmRequest, _opts: { provider: string; timeoutMs: number }): Promise<LlmResult> => ({
     ok: true,
     text: 'unused',
@@ -46,7 +46,6 @@ test('createSubagentToolRegistry also registers spawn tools when runLoop and cal
     'execute_command',
     'list_files',
     'read_file',
-    'spawn_subagent',
     'spawn_subagents',
     'write_file',
   ]);

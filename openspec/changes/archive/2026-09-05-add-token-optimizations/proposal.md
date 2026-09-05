@@ -12,7 +12,6 @@ The target is a reduction of at least 30% in tokens consumed over the benchmark 
 - Conversation history is compacted once it grows past a configured size, so a long-running chat stops resending its entire past on every turn.
 - The stable part of each request — the agent's instructions and its skill index — is held byte-identical across calls, so a provider that reuses a repeated prefix can do so.
 - The block of tool definitions sent on every call is reduced by removing redundancy, never capability: a tool whose behaviour is a special case of another's is no longer advertised separately, and argument descriptions that only restate the argument's name and type are dropped while those carrying a real constraint are kept.
-- The agent's instruction text stops repeating what the tool definitions already say.
 - Each optimization is measured on its own against the baseline, and the combination is measured too, so that a change which helps overall while hurting one task is visible rather than averaged away.
 
 The specific set is chosen from what the baseline shows, not decided in advance. The seven above are the candidates; any that the measurements do not justify is dropped rather than implemented for its own sake, and the reason is recorded.
@@ -48,8 +47,8 @@ Every one of the three removes redundancy rather than information. Not advertisi
 - `src/skills/` — index rendering must stay byte-identical between calls.
 - `src/tools/index.ts` — `spawn_subagent` is no longer registered for advertisement; `spawnSubagentTool` stays as the implementation `spawn_subagents` calls.
 - `src/tools/*.ts` — argument descriptions that restate the schema removed; those carrying constraints kept.
-- `src/system-instruction.ts` — instruction text no longer repeating what the tool definitions carry.
-- `benchmark/` — no change. The task set is frozen; editing it would invalidate the baseline this change is measured against.
+- `src/system-instruction.ts` — unchanged; a trim was attempted and reverted after it regressed benchmark correctness (see design.md — Decisions).
+- `benchmark/tasks.ts` and `benchmark/skills/` — no change. The task set is frozen; editing it would invalidate the baseline this change is measured against. `benchmark/run.ts`/`benchmark/runner.ts` gain minimal wiring so a run picks up the new configured limits (`toolResultMaxBytes`, `conversationCompactionThreshold`) — mechanical plumbing, not a change to the task set itself.
 - `README.md` — each limit, its default, and the before/after result.
 - `prices.json` — a price table must be configured before snapshots are taken, or every call records as unpriced and the before/after comparison reports a cost of zero on both sides. Ollama is local and incurs no real spend, so the figure is a proxy built from the rates of comparable hosted models, and the report must say so.
 - **Sequencing**: land last — after `add-agent-benchmark` has recorded a baseline, and after `fix-context-attribution` and `adopt-standard-observability`. Without the baseline there is nothing to measure against and the 30% claim is unverifiable. `fix-context-attribution` must precede this change because the content-category and repeated-input figures it corrects are the figures this change uses to decide which optimizations are worth keeping.
